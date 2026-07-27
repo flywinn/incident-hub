@@ -1,0 +1,12 @@
+{
+  "fingerprint": "api-gateway:502:checkout",
+  "title": "افزایش نرخ پاسخ‌های 502 در API Gateway",
+  "service": "API Gateway",
+  "service_code": "API",
+  "priority": "P1",
+  "message": "نرخ خطا از حد تعیین‌شده عبور کرده است.",
+  "alert_id": "elk-rule-12345",
+  "dashboard_url": "https://kibana.internal/app/observability/alerts/12345",
+  "first_seen": "2026-07-27T10:00:00.000Z",
+  "last_seen": "2026-07-27T10:05:00.000Z"
+}
