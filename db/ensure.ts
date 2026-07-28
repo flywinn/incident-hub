@@ -124,6 +124,14 @@ const schemaStatements = [
     imported_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS app_settings (
+    setting_key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL DEFAULT '{}',
+    updated_by TEXT NOT NULL DEFAULT 'سامانه',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `INSERT OR IGNORE INTO app_settings (setting_key, value_json, updated_by)
+    VALUES ('main', '{}', 'سامانه')`,
   "CREATE INDEX IF NOT EXISTS bugs_status_idx ON bugs(status)",
   "CREATE INDEX IF NOT EXISTS bugs_priority_idx ON bugs(priority)",
   "CREATE INDEX IF NOT EXISTS bugs_fingerprint_idx ON bugs(fingerprint)",
@@ -138,23 +146,34 @@ const schemaStatements = [
 ];
 
 let initialized = false;
+let initializationPromise: Promise<ReturnType<typeof getRawDb>> | null = null;
 
 export async function ensureDatabase() {
   if (initialized) return getRawDb();
+  if (initializationPromise) return initializationPromise;
 
-  const d1 = getRawDb();
-  await d1.batch(schemaStatements.map((statement) => d1.prepare(statement)));
-  if (process.env.SEED_DEMO_DATA === "true") {
-    await seedDatabase(d1);
+  initializationPromise = (async () => {
+    const d1 = getRawDb();
+    await d1.batch(schemaStatements.map((statement) => d1.prepare(statement)));
+    if (process.env.SEED_DEMO_DATA === "true") {
+      await seedDatabase(d1);
+    }
+    if (process.env.IMPORT_BUNDLED_REPORT === "true") {
+      await importBugReport(d1);
+    }
+    if (process.env.LOAD_DEFAULT_SERVICE_CATALOG !== "false") {
+      await synchronizeEditableCatalog(d1);
+    }
+    initialized = true;
+    return d1;
+  })();
+
+  try {
+    return await initializationPromise;
+  } catch (error) {
+    initializationPromise = null;
+    throw error;
   }
-  if (process.env.IMPORT_BUNDLED_REPORT === "true") {
-    await importBugReport(d1);
-  }
-  if (process.env.LOAD_DEFAULT_SERVICE_CATALOG !== "false") {
-    await synchronizeEditableCatalog(d1);
-  }
-  initialized = true;
-  return d1;
 }
 
 const requestedServices = [
@@ -368,16 +387,88 @@ async function seedDatabase(d1: D1Database) {
   ]);
 }
 
+const bugPrefixAliases: Record<string, string> = {
+  flight: "FLT",
+  flt: "FLT",
+  hotel: "HTL",
+  htl: "HTL",
+  visa: "VSA",
+  vsa: "VSA",
+  visa_main: "VSA",
+  visam: "VSA",
+  payment: "PAY",
+  pay: "PAY",
+  pmt: "PAY",
+  "elk > pay": "PAY",
+  "reversal requests": "PAY",
+  revreq: "PAY",
+  insurance: "INS",
+  ins: "INS",
+  insurance_main: "INS",
+  insm: "INS",
+  rail: "RAI",
+  rai: "RAI",
+  domesticrails: "RAI",
+  dra: "RAI",
+  bus: "BUS",
+  parto: "PAR",
+  "parto activity": "PAR",
+  "parto activity 200": "PAR",
+  partoa: "PAR",
+  parto200: "PAR",
+  keykoja: "KJ",
+  "key koja": "KJ",
+  kj: "KJ",
+  key: "KJ",
+  elk: "ELK",
+  api: "API",
+  website: "WEB",
+  web: "WEB",
+  "mobile app": "APP",
+  app: "APP",
+  global: "GLB",
+  global_main: "GLB",
+  glm: "GLB",
+  whitelabel: "WHL",
+  pickreward: "PCK",
+  cip: "CIP",
+  cip_main: "CIP",
+  cipm: "CIP",
+};
+
+function normalizedPrefix(value: unknown) {
+  const text = String(value ?? "").trim();
+  const alias = bugPrefixAliases[text.toLowerCase()];
+  if (alias) return alias;
+  const safe = text.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  return safe || "ELK";
+}
+
+export function bugPrefixForService(service?: Record<string, unknown> | null) {
+  if (!service) return "ELK";
+  for (const candidate of [service.path, service.name, service.code]) {
+    const text = String(candidate ?? "").trim();
+    if (!text) continue;
+    const alias = bugPrefixAliases[text.toLowerCase()];
+    if (alias) return alias;
+  }
+  return normalizedPrefix(service.code ?? service.path ?? service.name);
+}
+
 export async function nextBugCode(prefix = "ELK") {
   const d1 = await ensureDatabase();
+  const safePrefix = normalizedPrefix(prefix);
   const now = new Date();
   const day = `${String(now.getUTCFullYear()).slice(-2)}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+  // Counter key includes the service prefix. This matches the Excel pattern:
+  // FLT-YYMMDD-01 and HTL-YYMMDD-01 can both exist on the same day.
+  const counterKey = `${safePrefix}-${day}`;
   const counter = await d1
     .prepare(`INSERT INTO daily_counters (day, value) VALUES (?, 1)
       ON CONFLICT(day) DO UPDATE SET value = value + 1
       RETURNING value`)
-    .bind(day)
+    .bind(counterKey)
     .first<{ value: number }>();
 
-  return `${prefix}-${day}-${String(counter?.value ?? 1).padStart(2, "0")}`;
+  return `${safePrefix}-${day}-${String(counter?.value ?? 1).padStart(2, "0")}`;
 }

@@ -2,7 +2,7 @@ import { ensureDatabase } from "../../../../db/ensure";
 import { apiError, cleanText, isOneOf } from "../../../../lib/api";
 import { authorizeRequest } from "../../../../lib/auth";
 
-const statuses = ["NEW", "IN_PROGRESS", "RESOLVED", "CLOSED", "REOPENED"] as const;
+const statuses = ["NEW", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED", "REOPENED"] as const;
 const priorities = ["P1", "P2", "P3", "P4"] as const;
 
 export async function PATCH(
@@ -195,6 +195,45 @@ export async function PATCH(
 
     return Response.json({ bug: updated });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
+  }
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const auth = await authorizeRequest(request, ["ADMIN"]);
+    if ("response" in auth) return auth.response;
+    const { id } = await context.params;
+    const bugId = Number(id);
+    if (!Number.isFinite(bugId)) {
+      return Response.json({ error: "شناسه خطا معتبر نیست." }, { status: 400 });
+    }
+
+    const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const d1 = await ensureDatabase();
+    const bug = await d1.prepare("SELECT * FROM bugs WHERE id = ?").bind(bugId).first<Record<string, unknown>>();
+    if (!bug) return Response.json({ error: "خطا پیدا نشد." }, { status: 404 });
+
+    const bugCode = String(bug.bug_code);
+    if (String(payload.confirmBugCode ?? "").trim() !== bugCode) {
+      return Response.json({ error: `برای حذف دائم، شناسه ${bugCode} را دقیق وارد کنید.` }, { status: 400 });
+    }
+
+    await d1.batch([
+      d1.prepare("DELETE FROM email_queue WHERE bug_id = ?").bind(bugId),
+      d1.prepare("DELETE FROM comments WHERE bug_id = ?").bind(bugId),
+      d1.prepare("DELETE FROM follow_ups WHERE bug_id = ?").bind(bugId),
+      d1.prepare("DELETE FROM bug_assignees WHERE bug_id = ?").bind(bugId),
+      d1.prepare("DELETE FROM bug_events WHERE bug_id = ?").bind(bugId),
+      d1.prepare("DELETE FROM bugs WHERE id = ?").bind(bugId),
+      d1.prepare(`INSERT INTO audit_logs (
+        entity_type, entity_id, action, actor, before_value, after_value
+      ) VALUES ('BUG', ?, 'DELETE', ?, ?, ?)`)
+        .bind(bugCode, auth.user.fullName, JSON.stringify(bug), JSON.stringify({ deleted: true })),
+    ]);
+
+    return Response.json({ deleted: true, bugCode });
+  } catch (error) {
+    return apiError(error, request);
   }
 }

@@ -37,6 +37,6 @@ export async function PATCH(
     ]);
     return Response.json({ service: updated });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

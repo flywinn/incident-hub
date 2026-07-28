@@ -23,6 +23,6 @@ export async function POST(request: Request) {
       .bind(String((user as Record<string, unknown>).id), auth.user.fullName, JSON.stringify(user)).run();
     return Response.json({ user }, { status: 201 });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

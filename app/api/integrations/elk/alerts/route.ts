@@ -1,4 +1,4 @@
-import { ensureDatabase, nextBugCode } from "../../../../../db/ensure";
+import { bugPrefixForService, ensureDatabase, nextBugCode } from "../../../../../db/ensure";
 import { apiError, cleanText, isOneOf } from "../../../../../lib/api";
 
 const priorities = ["P1", "P2", "P3", "P4"] as const;
@@ -50,7 +50,8 @@ export async function POST(request: Request) {
 
     const service = await d1.prepare("SELECT * FROM services WHERE path = ? OR code = ? LIMIT 1")
       .bind(serviceLabel, cleanText(payload.service_code, 24)).first<Record<string, unknown>>();
-    const bugCode = await nextBugCode("ELK");
+    const requestedPrefix = cleanText(payload.service_code, 24);
+    const bugCode = await nextBugCode(requestedPrefix || bugPrefixForService(service));
     const bug = await d1.prepare(`INSERT INTO bugs (
       bug_code, title, description, service_id, service_label, priority, status,
       owner_name, source, external_alert_id, fingerprint, dashboard_url,
@@ -85,6 +86,6 @@ export async function POST(request: Request) {
     await d1.batch(queue);
     return Response.json({ bug, deduplicated: false }, { status: 201 });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

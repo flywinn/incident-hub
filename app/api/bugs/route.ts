@@ -1,4 +1,4 @@
-import { ensureDatabase, nextBugCode } from "../../../db/ensure";
+import { bugPrefixForService, ensureDatabase, nextBugCode } from "../../../db/ensure";
 import { apiError, cleanText, isOneOf } from "../../../lib/api";
 import { authorizeRequest } from "../../../lib/auth";
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "سرویس انتخاب‌شده معتبر نیست." }, { status: 400 });
     }
 
-    const bugCode = await nextBugCode("ELK");
+    const bugCode = await nextBugCode(bugPrefixForService(service));
     const now = new Date().toISOString();
     const result = await d1.prepare(`INSERT INTO bugs (
       bug_code, title, description, service_id, service_label, priority, status,
@@ -116,6 +116,6 @@ export async function POST(request: Request) {
     await d1.batch(statements);
     return Response.json({ bug: result }, { status: 201 });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

@@ -53,6 +53,6 @@ export async function POST(
 
     return Response.json({ followUp }, { status: 201 });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

@@ -167,3 +167,9 @@ export const importBatches = sqliteTable("import_batches", {
   importedCount: integer("imported_count").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+export const appSettings = sqliteTable("app_settings", {
+  settingKey: text("setting_key").primaryKey(),
+  valueJson: text("value_json").notNull().default("{}"),
+  updatedBy: text("updated_by").notNull().default("سامانه"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

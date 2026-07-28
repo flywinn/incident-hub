@@ -26,6 +26,6 @@ export async function POST(request: Request) {
       .bind(String((service as Record<string, unknown>).id), auth.user.fullName, JSON.stringify(service)).run();
     return Response.json({ service }, { status: 201 });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

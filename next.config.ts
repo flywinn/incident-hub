@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  allowedDevOrigins: ["172.25.3.8"],
   serverExternalPackages: ["better-sqlite3"],
   poweredByHeader: false,
   async headers() {

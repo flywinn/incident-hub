@@ -2,16 +2,66 @@ import { ensureDatabase } from "../../../../../db/ensure";
 import { apiError, cleanText } from "../../../../../lib/api";
 import { authorizeRequest } from "../../../../../lib/auth";
 
-const templateNames: Record<string, string> = {
-  INCIDENT_SHORT: "اطلاع‌رسانی کوتاه",
-  INCIDENT_ACTION: "درخواست بررسی رسمی",
+const templateDefinitions = {
+  INCIDENT_ACTION: {
+    name: "درخواست بررسی رسمی",
+    description: "اعلام رسمی اختلال و درخواست نتیجه، علت و اقدامات اصلاحی",
+  },
+  INCIDENT_SHORT: {
+    name: "اطلاع‌رسانی کوتاه",
+    description: "پیام کوتاه برای اطلاع سریع تیم مسئول",
+  },
+  API_ENDPOINT_ERROR: {
+    name: "خطای API و مسیرهای درگیر",
+    description: "مناسب خطاهای 4xx/5xx که یک یا چند Endpoint درگیر دارند",
+  },
+  HIGH_VOLUME_ERROR: {
+    name: "خطای پرتکرار یا حجمی",
+    description: "برای رخدادهایی با تعداد خطای زیاد یا تکرار قابل‌توجه",
+  },
+  UI_DISPLAY_ISSUE: {
+    name: "ایراد نمایشی یا محتوایی",
+    description: "برای مشکل تصویر، نظر، متن، صفحه یا مغایرت داده نمایشی",
+  },
+  FOLLOW_UP_PENDING: {
+    name: "پیگیری مجدد و درخواست آخرین وضعیت",
+    description: "برای موردی که همچنان مشاهده می‌شود یا منتظر پاسخ است",
+  },
+  RESOLUTION_RCA: {
+    name: "تأیید رفع و درخواست RCA",
+    description: "پس از رفع مشکل برای دریافت علت ریشه‌ای و اقدامات پیشگیرانه",
+  },
+  STATUS_UPDATE: {
+    name: "درخواست گزارش وضعیت",
+    description: "درخواست وضعیت فعلی، اقدام انجام‌شده و زمان‌بندی مرحله بعد",
+  },
+} as const;
+
+type TemplateKey = keyof typeof templateDefinitions;
+
+const statusLabels: Record<string, string> = {
+  NEW: "جدید",
+  IN_PROGRESS: "در حال پیگیری",
+  WAITING: "منتظر پاسخ",
+  RESOLVED: "رفع‌شده",
+  CLOSED: "بسته‌شده",
+  REOPENED: "بازگشایی‌شده",
 };
+
+function normalizeDigits(value: string) {
+  const persian = "۰۱۲۳۴۵۶۷۸۹";
+  const arabic = "٠١٢٣٤٥٦٧٨٩";
+  return value
+    .replace(/[۰-۹]/g, (digit) => String(persian.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String(arabic.indexOf(digit)));
+}
 
 function faHour(value: unknown) {
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return "نامشخص";
   return new Intl.DateTimeFormat("fa-IR", {
     hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
     timeZone: "Asia/Tehran",
   }).format(date);
@@ -26,10 +76,54 @@ function humanizeService(value: unknown) {
     .trim();
 }
 
+function sourceText(bug: Record<string, unknown>) {
+  return `${bug.title ?? ""}\n${bug.description ?? ""}`.trim();
+}
+
 function extractErrorLabel(bug: Record<string, unknown>) {
-  const source = `${bug.title ?? ""} ${bug.description ?? ""}`;
-  const match = source.match(/\b([45]\d{2})\b/);
+  const match = normalizeDigits(sourceText(bug)).match(/\b([45]\d{2}|599)\b/);
   return match ? `خطای ${match[1]}` : "خطا";
+}
+
+function extractEndpoints(bug: Record<string, unknown>) {
+  const matches = sourceText(bug).match(/\/(?:api|gateway|v\d+|[A-Za-z0-9._~-]+)(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%{}\-]+)*/gi) ?? [];
+  return [...new Set(matches.map((item) => item.replace(/[،,.;:]+$/g, "").trim()).filter(Boolean))].slice(0, 10);
+}
+
+function extractObservedCount(bug: Record<string, unknown>) {
+  const normalized = normalizeDigits(sourceText(bug));
+  const explicit = normalized.match(/(?:تعداد\s*)?(\d{2,7})\s*(?:مورد\s*)?(?:خطا|error)/i);
+  if (explicit) return Number(explicit[1]);
+  const occurrence = Number(bug.occurrence_count ?? 0);
+  return Number.isFinite(occurrence) && occurrence > 1 ? occurrence : null;
+}
+
+function incidentType(bug: Record<string, unknown>, endpoints: string[]) {
+  const text = sourceText(bug).toLowerCase();
+  if (/عکس|تصویر|نمایش|نظرات|مطابقت|صفحه|رابط|ui|content/.test(text)) return "ایراد نمایشی یا محتوایی";
+  if (endpoints.length) return "اختلال API یا Endpoint";
+  if (/کند|timeout|زمان پاسخ|latency/.test(text)) return "افت کارایی";
+  return "اختلال سرویس";
+}
+
+function recommendedTemplateKey(bug: Record<string, unknown>): TemplateKey {
+  const status = String(bug.status ?? "NEW");
+  const endpoints = extractEndpoints(bug);
+  const count = extractObservedCount(bug);
+  const type = incidentType(bug, endpoints);
+
+  if (status === "RESOLVED" || status === "CLOSED") return "RESOLUTION_RCA";
+  if (status === "IN_PROGRESS" || status === "WAITING" || status === "REOPENED") return "FOLLOW_UP_PENDING";
+  if (count && count >= 20) return "HIGH_VOLUME_ERROR";
+  if (type === "ایراد نمایشی یا محتوایی") return "UI_DISPLAY_ISSUE";
+  if (endpoints.length) return "API_ENDPOINT_ERROR";
+  return "INCIDENT_ACTION";
+}
+
+function toTemplateKey(value: unknown, fallback: TemplateKey): TemplateKey {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(templateDefinitions, value)
+    ? value as TemplateKey
+    : fallback;
 }
 
 function uniqueEmails(values: unknown[]) {
@@ -40,23 +134,127 @@ function uniqueEmails(values: unknown[]) {
   return [...new Set(emails)];
 }
 
-function buildDraft(bug: Record<string, unknown>, recipients: string[], templateKey: string) {
+function listBlock(title: string, items: string[]) {
+  return items.length ? `${title}\n${items.map((item) => `- ${item}`).join("\n")}` : "";
+}
+
+function buildDraft(bug: Record<string, unknown>, recipients: string[], templateKey: TemplateKey) {
   const service = humanizeService(bug.service_label);
   const hour = faHour(bug.first_seen_at);
   const error = extractErrorLabel(bug);
-  const incident = `به اطلاع می‌رساند از حوالی ساعت ${hour}، در سرویس ${service} ${error} مشاهده شده و عملکرد سرویس با اختلال مواجه است.`;
-  const request = "خواهشمند است دستور فرمایید موضوع در اسرع وقت بررسی شده و نتیجه بررسی، علت بروز خطا و اقدامات اصلاحی انجام‌شده اعلام شود.";
-  const paragraphs = templateKey === "INCIDENT_SHORT"
-    ? ["با سلام و احترام،", incident, "با تشکر و احترام"]
-    : ["با سلام و احترام،", incident, request, "با تشکر و احترام"];
+  const endpoints = extractEndpoints(bug);
+  const observedCount = extractObservedCount(bug);
+  const type = incidentType(bug, endpoints);
+  const status = statusLabels[String(bug.status ?? "NEW")] ?? String(bug.status ?? "نامشخص");
+  const bugCode = String(bug.bug_code ?? "");
+  const title = String(bug.title ?? "رخداد ثبت‌شده").trim();
+  const description = String(bug.description ?? "").trim();
+  const endpointBlock = listBlock("مسیرهای درگیر:", endpoints);
+  const referenceBlock = `شناسه رخداد: ${bugCode}\nوضعیت فعلی: ${status}`;
+  const closing = "با تشکر و احترام.";
+
+  const commonIncident = `به اطلاع می‌رساند از حوالی ساعت ${hour}، در سرویس ${service} ${error} مشاهده شده و عملکرد سرویس نیازمند بررسی است.`;
+  const formalRequest = "خواهشمند است دستور فرمایید موضوع در اسرع وقت بررسی شده و نتیجه بررسی، علت بروز خطا و اقدامات اصلاحی انجام‌شده اعلام شود.";
+
+  let subject = `[${bugCode}] اعلام اختلال سرویس ${service}`;
+  let paragraphs: string[] = [];
+
+  switch (templateKey) {
+    case "INCIDENT_SHORT":
+      paragraphs = ["با سلام و احترام،", commonIncident, referenceBlock, endpointBlock, closing];
+      break;
+    case "API_ENDPOINT_ERROR":
+      subject = `[${bugCode}] ${error} در Endpointهای سرویس ${service}`;
+      paragraphs = [
+        "با سلام و احترام،",
+        commonIncident,
+        endpointBlock || "مسیر درگیر در شرح رخداد ثبت نشده است.",
+        description ? `شرح تکمیلی:\n${description}` : "",
+        "خواهشمند است علت فنی، دامنه اثر، اقدام اصلاحی و زمان تقریبی رفع اعلام شود.",
+        referenceBlock,
+        closing,
+      ];
+      break;
+    case "HIGH_VOLUME_ERROR":
+      subject = `[${bugCode}] افزایش تعداد ${error} در سرویس ${service}`;
+      paragraphs = [
+        "با سلام و احترام،",
+        `در پایش سرویس ${service}${observedCount ? `، تعداد ${observedCount.toLocaleString("fa-IR")} رخداد خطا` : "، تکرار قابل‌توجه خطا"} مشاهده شده است.`,
+        endpointBlock,
+        description ? `شرح تکمیلی:\n${description}` : "",
+        "لطفاً علت افزایش خطا، میزان اثر بر کاربران، اقدام فوری انجام‌شده و برنامه جلوگیری از تکرار اعلام شود.",
+        referenceBlock,
+        closing,
+      ];
+      break;
+    case "UI_DISPLAY_ISSUE":
+      subject = `[${bugCode}] بررسی ایراد نمایشی در ${service}`;
+      paragraphs = [
+        "با سلام و احترام،",
+        `در بررسی‌های انجام‌شده، موردی در بخش نمایش اطلاعات سرویس ${service} مشاهده شده است که نیازمند بررسی می‌باشد.`,
+        `موضوع: ${title}`,
+        description ? `شرح مشاهده:\n${description}` : "",
+        "خواهشمند است دامنه اثر، علت بروز مشکل و نتیجه یا اقدامات انجام‌شده در این خصوص اطلاع‌رسانی شود.",
+        referenceBlock,
+        closing,
+      ];
+      break;
+    case "FOLLOW_UP_PENDING":
+      subject = `[پیگیری][${bugCode}] درخواست آخرین وضعیت ${service}`;
+      paragraphs = [
+        "با سلام و احترام،",
+        `پیرو بررسی‌های انجام‌شده درباره «${title}»، به اطلاع می‌رساند این مورد همچنان در وضعیت «${status}» قرار دارد و نیازمند پیگیری است.`,
+        endpointBlock,
+        description ? `آخرین شرح ثبت‌شده:\n${description}` : "",
+        "خواهشمند است موضوع مجدداً بررسی شده و آخرین وضعیت، اقدام انجام‌شده، مانع فعلی و زمان‌بندی مرحله بعد اعلام گردد.",
+        referenceBlock,
+        "پیشاپیش از پیگیری و همکاری شما سپاسگزاریم.",
+      ];
+      break;
+    case "RESOLUTION_RCA":
+      subject = `[${bugCode}] تأیید رفع و درخواست گزارش علت ریشه‌ای`;
+      paragraphs = [
+        "با سلام و احترام،",
+        `طبق آخرین وضعیت ثبت‌شده، رخداد «${title}» در سرویس ${service} رفع یا بسته شده است.`,
+        endpointBlock,
+        "خواهشمند است نتیجه نهایی، علت ریشه‌ای بروز مشکل (RCA)، اقدامات اصلاحی انجام‌شده و اقدامات پیشگیرانه برای جلوگیری از تکرار اعلام شود.",
+        referenceBlock,
+        closing,
+      ];
+      break;
+    case "STATUS_UPDATE":
+      subject = `[${bugCode}] درخواست گزارش وضعیت رخداد ${service}`;
+      paragraphs = [
+        "با سلام و احترام،",
+        `خواهشمند است آخرین وضعیت رخداد «${title}» در سرویس ${service} اعلام شود.`,
+        "لطفاً اقدام انجام‌شده، نتیجه فعلی، مانع احتمالی، مسئول مرحله بعد و زمان تقریبی تعیین تکلیف را نیز اعلام فرمایید.",
+        endpointBlock,
+        referenceBlock,
+        closing,
+      ];
+      break;
+    case "INCIDENT_ACTION":
+    default:
+      paragraphs = ["با سلام و احترام،", commonIncident, endpointBlock, description ? `شرح تکمیلی:\n${description}` : "", formalRequest, referenceBlock, closing];
+      break;
+  }
 
   return {
     to: recipients.join(", "),
     cc: "",
-    subject: `[${String(bug.bug_code)}] اعلام اختلال سرویس ${service}`,
-    body: paragraphs.join("\n\n"),
+    subject,
+    body: paragraphs.filter(Boolean).join("\n\n"),
     templateKey,
-    templateName: templateNames[templateKey],
+    templateName: templateDefinitions[templateKey].name,
+    recommendedTemplateKey: recommendedTemplateKey(bug),
+    context: {
+      status,
+      incidentType: type,
+      errorLabel: error,
+      endpoints,
+      observedCount,
+      service,
+    },
   };
 }
 
@@ -89,19 +287,27 @@ export async function GET(
     const emailContext = await loadEmailContext(d1, bugId);
     if (!emailContext) return Response.json({ error: "خطا پیدا نشد." }, { status: 404 });
 
-    const requestedTemplate = new URL(request.url).searchParams.get("template") ?? "INCIDENT_ACTION";
-    const templateKey = requestedTemplate in templateNames ? requestedTemplate : "INCIDENT_ACTION";
+    const recommended = recommendedTemplateKey(emailContext.bug);
+    const requestedTemplate = new URL(request.url).searchParams.get("template");
+    const templateKey = requestedTemplate === "AUTO"
+      ? recommended
+      : toTemplateKey(requestedTemplate, recommended);
     const history = (await d1.prepare("SELECT * FROM email_queue WHERE bug_id = ? ORDER BY created_at DESC LIMIT 20")
       .bind(bugId).all()).results;
 
     return Response.json({
       draft: buildDraft(emailContext.bug, emailContext.recipients, templateKey),
-      templates: Object.entries(templateNames).map(([key, name]) => ({ key, name })),
+      templates: Object.entries(templateDefinitions).map(([key, item]) => ({
+        key,
+        name: item.name,
+        description: item.description,
+        recommended: key === recommended,
+      })),
       history,
       deliveryConfigured: Boolean(process.env.EMAIL_WEBHOOK_URL),
     });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }
 
@@ -120,15 +326,7 @@ export async function POST(
     const cc = cleanText(payload.cc, 1000);
     const subject = cleanText(payload.subject, 300);
     const body = cleanText(payload.body, 12000);
-    const requestedTemplateKey =
-      typeof payload.templateKey === "string" ? payload.templateKey : "";
-
-    const template = Object.prototype.hasOwnProperty.call(
-      templateNames,
-      requestedTemplateKey,
-    )
-      ? requestedTemplateKey
-      : "INCIDENT_ACTION";
+    const template = toTemplateKey(payload.templateKey, "INCIDENT_ACTION");
     if (!subject || !body || (action === "QUEUE" && !uniqueEmails([recipient]).length)) {
       return Response.json({ error: "گیرنده، عنوان و متن ایمیل برای ارسال الزامی هستند." }, { status: 400 });
     }
@@ -143,13 +341,10 @@ export async function POST(
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`).bind(
       bugId, recipient, cc, subject, template, body, actor, initialStatus,
     ).first<Record<string, unknown>>();
-    if (!email) {
-      return Response.json(
-        { error: "ثبت ایمیل در پایگاه داده ناموفق بود." },
-        { status: 500 },
-      );
-    }
 
+    if (!email) {
+      return Response.json({ error: "ثبت ایمیل در پایگاه داده ناموفق بود." }, { status: 500 });
+    }
     const emailId = Number(email.id);
 
     await d1.batch([
@@ -158,10 +353,10 @@ export async function POST(
         action === "DRAFT" ? "EMAIL_DRAFTED" : "EMAIL_QUEUED",
         action === "DRAFT" ? "پیش‌نویس ایمیل ذخیره شد" : "ایمیل در صف ارسال ثبت شد",
         actor,
-        JSON.stringify({ emailId: email?.id, recipient, subject, template }),
+        JSON.stringify({ emailId, recipient, subject, template }),
       ),
       d1.prepare("INSERT INTO audit_logs (entity_type, entity_id, action, actor, after_value) VALUES ('EMAIL', ?, ?, ?, ?)").bind(
-        String(email?.id),
+        String(emailId),
         action,
         actor,
         JSON.stringify(email),
@@ -169,7 +364,7 @@ export async function POST(
     ]);
 
     let deliveryMessage = action === "DRAFT" ? "پیش‌نویس ذخیره شد." : "ایمیل در صف ارسال ثبت شد.";
-    if (action === "QUEUE" && process.env.EMAIL_WEBHOOK_URL && email) {
+    if (action === "QUEUE" && process.env.EMAIL_WEBHOOK_URL) {
       try {
         const response = await fetch(process.env.EMAIL_WEBHOOK_URL, {
           method: "POST",
@@ -192,7 +387,7 @@ export async function POST(
         email = await d1.prepare("UPDATE email_queue SET status = 'SENT', sent_at = CURRENT_TIMESTAMP, attempts = attempts + 1 WHERE id = ? RETURNING *")
           .bind(emailId).first<Record<string, unknown>>();
         await d1.prepare("INSERT INTO bug_events (bug_id, event_type, summary, actor, metadata) VALUES (?, 'EMAIL_SENT', ?, ?, ?)")
-          .bind(bugId, "ایمیل از کانال متصل‌شده ارسال شد", actor, JSON.stringify({ emailId: email?.id, recipient })).run();
+          .bind(bugId, "ایمیل از کانال متصل‌شده ارسال شد", actor, JSON.stringify({ emailId, recipient })).run();
         deliveryMessage = "ایمیل با موفقیت ارسال شد.";
       } catch (deliveryError) {
         const message = deliveryError instanceof Error ? deliveryError.message : "خطای کانال ارسال";
@@ -206,6 +401,6 @@ export async function POST(
 
     return Response.json({ email, message: deliveryMessage }, { status: 201 });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

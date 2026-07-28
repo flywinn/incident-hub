@@ -13,7 +13,7 @@ type ImportRow = {
   fixedAt?: string;
 };
 
-const BATCH_KEY = "bug-report.xlsx:file_0000000029b081f48ec95a4802689f31:v2-enriched";
+const BATCH_KEY = "bug-report(1).xlsx:issues-a1-k26:v3-status-and-id-normalized";
 
 const importedUsers = [
   { fullName: "Abuzar Gashtasebi", email: "abuzar.gashtasebi@internal.local", team: "عملیات و مانیتورینگ" },
@@ -306,7 +306,7 @@ function firstRecipient(value?: string) {
 }
 
 function descriptionFor(row: ImportRow) {
-  const parts = ["واردشده از فایل bug-report.xlsx."];
+  const parts = ["واردشده از فایل bug-report(1).xlsx."];
   if (row.originalBugCode) {
     parts.push(`شناسه تکراری اولیه در فایل: ${row.originalBugCode}.`);
   }
@@ -427,7 +427,7 @@ export async function importBugReport(d1: D1Database) {
         registeredAt,
         nextFollowUpAt,
         resolvedAt,
-        "Import bug-report.xlsx",
+        "Import bug-report(1).xlsx",
         registeredAt,
         registeredAt,
       )
@@ -474,7 +474,7 @@ export async function importBugReport(d1: D1Database) {
           VALUES (?, 'SPREADSHEET_IMPORTED', ?, 'Import Service', ?, ?)`)
           .bind(
             bug.id,
-            "رکورد از فایل bug-report.xlsx وارد شد",
+            "رکورد از فایل bug-report(1).xlsx وارد شد",
             JSON.stringify({
               registeredAt: row.registeredAt,
               originalBugCode: row.originalBugCode ?? row.bugCode,
@@ -491,7 +491,7 @@ export async function importBugReport(d1: D1Database) {
 
   await d1.prepare(`INSERT INTO import_batches
     (batch_key, source_name, imported_count) VALUES (?, ?, ?)`)
-    .bind(BATCH_KEY, "bug-report.xlsx", rows.length)
+    .bind(BATCH_KEY, "bug-report(1).xlsx", rows.length)
     .run();
 }
 

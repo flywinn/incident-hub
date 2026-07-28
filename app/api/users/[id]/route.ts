@@ -37,7 +37,7 @@ export async function PATCH(
     ]);
     return Response.json({ user: updated });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }
 
@@ -101,6 +101,6 @@ export async function DELETE(
     await d1.batch(statements);
     return Response.json({ deleted: true, userId });
   } catch (error) {
-    return apiError(error);
+    return apiError(error, request);
   }
 }

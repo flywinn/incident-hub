@@ -102,10 +102,18 @@ export function getRawDb(): LocalD1Database {
   const path = databasePath();
   mkdirSync(dirname(path), { recursive: true });
   const sqlite = new Database(path);
+  const configuredBusyTimeout = Number(process.env.SQLITE_BUSY_TIMEOUT_MS ?? 10000);
+  const busyTimeout = Number.isFinite(configuredBusyTimeout)
+    ? Math.min(30000, Math.max(1000, Math.trunc(configuredBusyTimeout)))
+    : 10000;
+
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("synchronous = NORMAL");
   sqlite.pragma("foreign_keys = ON");
-  sqlite.pragma("busy_timeout = 5000");
+  sqlite.pragma(`busy_timeout = ${busyTimeout}`);
+  sqlite.pragma("wal_autocheckpoint = 1000");
+  sqlite.pragma("temp_store = MEMORY");
+  sqlite.pragma("cache_size = -16000");
   singleton = new LocalD1Database(sqlite);
   return singleton;
 }
