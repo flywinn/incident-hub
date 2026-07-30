@@ -91,6 +91,19 @@ export const bugAssignees = sqliteTable("bug_assignees", {
   index("bug_assignees_user_idx").on(table.userId),
 ]);
 
+export const bugAttachments = sqliteTable("bug_attachments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  bugId: integer("bug_id").notNull().references(() => bugs.id),
+  storedName: text("stored_name").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedBy: text("uploaded_by").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("bug_attachments_bug_idx").on(table.bugId),
+]);
+
 export const followUps = sqliteTable("follow_ups", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   bugId: integer("bug_id").notNull().references(() => bugs.id),

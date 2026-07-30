@@ -57,6 +57,16 @@ const schemaStatements = [
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS bug_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bug_id INTEGER NOT NULL REFERENCES bugs(id),
+    stored_name TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    uploaded_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
   `CREATE TABLE IF NOT EXISTS follow_ups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bug_id INTEGER NOT NULL REFERENCES bugs(id),
@@ -136,6 +146,7 @@ const schemaStatements = [
   "CREATE INDEX IF NOT EXISTS bugs_priority_idx ON bugs(priority)",
   "CREATE INDEX IF NOT EXISTS bugs_fingerprint_idx ON bugs(fingerprint)",
   "CREATE INDEX IF NOT EXISTS bugs_next_follow_up_idx ON bugs(next_follow_up_at)",
+  "CREATE INDEX IF NOT EXISTS bug_attachments_bug_idx ON bug_attachments(bug_id)",
   "CREATE INDEX IF NOT EXISTS follow_ups_bug_idx ON follow_ups(bug_id)",
   "CREATE INDEX IF NOT EXISTS follow_ups_schedule_idx ON follow_ups(scheduled_at)",
   "CREATE INDEX IF NOT EXISTS bug_assignees_bug_idx ON bug_assignees(bug_id)",

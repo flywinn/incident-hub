@@ -18,6 +18,7 @@ type Snapshot = {
   services: Row[];
   users: Row[];
   assignees: Row[];
+  attachments: Row[];
   followUps: Row[];
   events: Row[];
   emails: Row[];
@@ -119,6 +120,8 @@ const eventLabels: Record<string, string> = {
   EMAIL_DRAFTED: "ذخیره پیش‌نویس ایمیل",
   EMAIL_QUEUED: "ثبت ایمیل در صف",
   EMAIL_SENT: "ارسال ایمیل",
+  ATTACHMENT_ADDED: "افزودن تصویر",
+  ATTACHMENT_REMOVED: "حذف تصویر",
 };
 
 const sourceLabels: Record<string, string> = {
@@ -159,6 +162,7 @@ const emptySnapshot: Snapshot = {
   services: [],
   users: [],
   assignees: [],
+  attachments: [],
   followUps: [],
   events: [],
   emails: [],
@@ -234,6 +238,15 @@ function toDateTimeLocal(value: unknown) {
   if (Number.isNaN(date.getTime())) return "";
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+async function uploadIncidentImages(bugId: number, files: File[]) {
+  if (!files.length) return;
+  const form = new FormData();
+  files.forEach((file) => form.append("images", file));
+  const response = await fetch(`/api/bugs/${bugId}/attachments`, { method: "POST", body: form, cache: "no-store" });
+  const payload = await response.json().catch(() => ({})) as { error?: string };
+  if (!response.ok) throw new Error(payload.error || "آپلود تصاویر انجام نشد.");
 }
 
 function cx(...values: (string | false | null | undefined)[]) {
@@ -654,6 +667,7 @@ export default function IncidentHub({
           services={data.services}
           users={data.users}
           assignees={bugAssignees(data.assignees, selectedBug.id)}
+          attachments={data.attachments.filter((item) => Number(item.bug_id) === Number(selectedBug.id))}
           followUps={data.followUps.filter((item) => Number(item.bug_id) === Number(selectedBug.id))}
           events={data.events.filter((event) => Number(event.bug_id) === Number(selectedBug.id))}
           canEdit={canEdit}
@@ -2215,6 +2229,7 @@ function BugDrawer({
   services,
   users,
   assignees,
+  attachments,
   followUps,
   events,
   canEdit,
@@ -2227,6 +2242,7 @@ function BugDrawer({
   services: Row[];
   users: Row[];
   assignees: Row[];
+  attachments: Row[];
   followUps: Row[];
   events: Row[];
   canEdit: boolean;
@@ -2251,6 +2267,7 @@ function BugDrawer({
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [showFollowup, setShowFollowup] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   const save = async () => {
     if (firstSeenAt && lastSeenAt && new Date(lastSeenAt).getTime() < new Date(firstSeenAt).getTime()) {
@@ -2330,6 +2347,14 @@ function BugDrawer({
                   <label className="full"><span>شرح و شواهد</span><textarea rows={5} value={description} disabled={!canEdit} onChange={(event) => setDescription(event.target.value)} /></label>
                 </div>
                 {Boolean(bug.dashboard_url) && <a className="external-link" href={String(bug.dashboard_url)} target="_blank" rel="noreferrer">باز کردن داشبورد Kibana ↗</a>}
+              </section>
+              <section className="drawer-section incident-images-section">
+                <div className="incident-images-heading"><div><h3>تصاویر خطا</h3><p>اسکرین‌شات‌ها و شواهد تصویری مرتبط با این Incident</p></div>{canEdit && <label className="image-upload-button"><input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploadingImages} onChange={async (event) => { const files = Array.from(event.target.files ?? []); if (!files.length) return; setUploadingImages(true); setSaveError(""); try { await uploadIncidentImages(Number(bug.id), files); await onUpdated(`${faNumber(files.length)} تصویر به خطا افزوده شد.`); } catch (error) { setSaveError(error instanceof Error ? error.message : "آپلود تصاویر انجام نشد."); } finally { setUploadingImages(false); event.target.value = ""; } }} />{uploadingImages ? "در حال آپلود…" : "＋ افزودن تصویر"}</label>}</div>
+                <div className="incident-image-grid">
+                  {attachments.map((item) => <article key={String(item.id)} className="incident-image-card"><a href={`/api/bug-attachments/${item.id}`} target="_blank" rel="noreferrer"><img src={`/api/bug-attachments/${item.id}`} alt={String(item.original_name)} /><span>مشاهده بزرگ</span></a><div><strong title={String(item.original_name)}>{String(item.original_name)}</strong><small>{(Number(item.size_bytes) / 1024 / 1024).toLocaleString("fa-IR", { maximumFractionDigits: 2 })} MB · {formatDate(item.created_at, true)}</small>{canEdit && <button type="button" onClick={async () => { if (!window.confirm("این تصویر حذف شود؟")) return; try { await api(`/api/bug-attachments/${item.id}`, { method: "DELETE" }); await onUpdated("تصویر از خطا حذف شد."); } catch (error) { setSaveError(error instanceof Error ? error.message : "حذف تصویر انجام نشد."); } }}>حذف</button>}</div></article>)}
+                  {!attachments.length && <div className="incident-images-empty">هنوز تصویری برای این خطا ثبت نشده است.</div>}
+                </div>
+                <small className="incident-image-help">فرمت‌های مجاز: JPG، PNG و WebP · حداکثر ۱۰ مگابایت برای هر تصویر · حداکثر ۱۰ تصویر در هر بار</small>
               </section>
               <section className="detail-grid detail-grid-expanded">
                 <div><span>تاریخ ثبت</span><strong>{formatDate(bug.created_at, true)}</strong><small>{formatRelativeDate(bug.created_at)}</small></div>
@@ -2702,6 +2727,9 @@ function NewBugModal({ services, users, onClose, onCreated }: { services: Row[];
   const [formError, setFormError] = useState("");
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
   const [firstSeenAt, setFirstSeenAt] = useState("");
+  const [images, setImages] = useState<File[]>([]);
+  const imagePreviews = useMemo(() => images.map((file) => ({ file, url: URL.createObjectURL(file) })), [images]);
+  useEffect(() => () => imagePreviews.forEach((item) => URL.revokeObjectURL(item.url)), [imagePreviews]);
   return (
     <ModalShell title="خطای جدید" subtitle="موضوع، سرویس، اولویت و زمان مشاهده را وارد کنید." onClose={onClose}>
       <form className="modal-form" onSubmit={async (event: FormEvent<HTMLFormElement>) => {
@@ -2709,7 +2737,7 @@ function NewBugModal({ services, users, onClose, onCreated }: { services: Row[];
         setSaving(true); setFormError("");
         const values = new FormData(event.currentTarget);
         try {
-          await api("/api/bugs", {
+          const created = await api<{ bug: Row }>("/api/bugs", {
             method: "POST",
             body: JSON.stringify({
               title: values.get("title"),
@@ -2720,6 +2748,7 @@ function NewBugModal({ services, users, onClose, onCreated }: { services: Row[];
               firstSeenAt: firstSeenAt ? new Date(firstSeenAt).toISOString() : new Date().toISOString(),
             }),
           });
+          if (images.length) await uploadIncidentImages(Number(created.bug.id), images);
           await onCreated();
         } catch (requestError) {
           setFormError(requestError instanceof Error ? requestError.message : "ثبت خطا انجام نشد.");
@@ -2731,6 +2760,7 @@ function NewBugModal({ services, users, onClose, onCreated }: { services: Row[];
         <div className="full"><AssigneePicker users={users} selectedIds={ownerIds} onChange={setOwnerIds} compact /></div>
         <label className="full"><span>اولین مشاهده</span><input name="firstSeenAt" type="datetime-local" value={firstSeenAt} onChange={(event) => setFirstSeenAt(event.target.value)} /><small className="date-preview">{firstSeenAt ? `${formatDate(new Date(firstSeenAt).toISOString(), true)} · ${formatRelativeDate(firstSeenAt)}` : "در صورت خالی بودن، زمان فعلی ثبت می‌شود"}</small></label>
         <label className="full"><span>شرح و شواهد اولیه</span><textarea name="description" rows={5} placeholder="اثر مشاهده‌شده، نمودار مرتبط یا اقدام اولیه..." /></label>
+        <div className="full new-bug-image-picker"><div className="image-picker-head"><div><strong>تصاویر خطا</strong><span>اسکرین‌شات یا شواهد تصویری را همراه ثبت Incident اضافه کنید.</span></div><label className="image-upload-button"><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { const selected = Array.from(event.target.files ?? []); const invalid = selected.find((file) => file.size > 10 * 1024 * 1024); if (invalid) { setFormError(`حجم ${invalid.name} بیشتر از ۱۰ مگابایت است.`); event.target.value = ""; return; } setImages((current) => [...current, ...selected].slice(0, 10)); event.target.value = ""; }} />＋ انتخاب تصویر</label></div>{images.length > 0 && <div className="new-bug-image-previews">{imagePreviews.map(({ file, url }, index) => <article key={`${file.name}-${file.lastModified}-${index}`}><img src={url} alt={file.name} /><button type="button" onClick={() => setImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button><span>{file.name}</span><small>{(file.size / 1024 / 1024).toLocaleString("fa-IR", { maximumFractionDigits: 2 })} MB</small></article>)}</div>}<small className="incident-image-help">JPG، PNG یا WebP · حداکثر ۱۰ مگابایت برای هر تصویر · حداکثر ۱۰ تصویر</small></div>
         {formError && <p className="form-error">{formError}</p>}
         <footer><button type="button" className="cancel-button" onClick={onClose}>انصراف</button><button className="primary-button" disabled={saving}>{saving ? "در حال ثبت..." : "ثبت خطا"}</button></footer>
       </form>
