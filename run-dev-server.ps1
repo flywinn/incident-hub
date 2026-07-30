@@ -1,6 +1,6 @@
-$ErrorActionPreference = "Continue"
+﻿$ErrorActionPreference = "Continue"
 
-$ProjectPath = "C:\Dev\ElkIncidentHub"
+$ProjectPath = "D:\IncidentHub\Dev"
 $LogDirectory = Join-Path $ProjectPath "logs"
 $LogPath = Join-Path $LogDirectory "dev-server.log"
 $NpmPath = "C:\Program Files\nodejs\npm.cmd"

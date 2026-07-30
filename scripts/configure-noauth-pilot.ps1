@@ -1,11 +1,11 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [string]$ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [int]$Port = 3000,
   [string]$AllowedRemoteAddress = "172.25.3.0/24",
   [string]$AdminEmail = "monitoring-admin@af.hadc.me",
   [string]$AdminName = "Monitoring Administrator",
-  [string]$DatabasePath = "C:\ProgramData\ElkIncidentHub\data\incident-hub.sqlite"
+  [string]$DatabasePath = "D:\IncidentHub\Data\Prod\incident-hub.sqlite"
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,3 +73,6 @@ Write-Host "  npm install"
 Write-Host "  npm run lint"
 Write-Host "  npm run build"
 Write-Host "  npm start"
+
+
+
