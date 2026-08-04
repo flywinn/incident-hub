@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { extname, resolve } from "node:path";
 
 export const MAX_INCIDENT_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_EMAIL_INLINE_IMAGE_BYTES = 18 * 1024 * 1024;
 const MIME_EXTENSIONS: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/png": ".png",

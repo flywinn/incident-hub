@@ -1,5 +1,7 @@
 "use client";
 
+/* IncidentHub UI v1.9 · Unified Surface */
+
 import {
   FormEvent,
   ReactNode,
@@ -45,6 +47,30 @@ type PageKey =
 
 type WidgetKey = "kpis" | "critical" | "attention" | "overview" | "services" | "incidents" | "followups" | "quality" | "growth" | "activity";
 
+type IconName =
+  | "dashboard"
+  | "incident"
+  | "followup"
+  | "service"
+  | "users"
+  | "audit"
+  | "automation"
+  | "settings"
+  | "search"
+  | "refresh"
+  | "plus"
+  | "alert"
+  | "activity"
+  | "waiting"
+  | "check"
+  | "clock"
+  | "menu"
+  | "close"
+  | "arrowLeft"
+  | "admin"
+  | "person"
+  | "filter";
+
 type CurrentUser = {
   id: number;
   fullName: string;
@@ -55,7 +81,7 @@ type CurrentUser = {
 };
 
 type AppPreferences = {
-  theme: "forest" | "ocean" | "violet" | "amber";
+  theme: "forest" | "ocean" | "violet" | "amber" | "dark";
   fontSize: "normal" | "large" | "xlarge";
   autoRefresh: boolean;
   refreshSeconds: number;
@@ -71,10 +97,11 @@ const defaultPreferences: AppPreferences = {
   refreshSeconds: 30,
   adaptiveTables: true,
   tableDensity: "comfortable",
-  contrast: "high",
+  contrast: "standard",
 };
 
-const defaultWidgetOrder: WidgetKey[] = ["kpis", "critical", "attention", "overview", "services", "incidents", "followups", "quality", "growth", "activity"];
+const defaultWidgetOrder: WidgetKey[] = ["kpis", "incidents", "attention", "followups", "critical", "services", "overview", "quality", "growth", "activity"];
+const defaultHiddenWidgets: WidgetKey[] = ["critical", "services", "overview", "quality", "growth", "activity"];
 
 const widgetNames: Record<WidgetKey, string> = {
   kpis: "شاخص‌های کلیدی",
@@ -82,7 +109,7 @@ const widgetNames: Record<WidgetKey, string> = {
   attention: "صف نیازمند اقدام",
   overview: "ترکیب وضعیت‌ها",
   services: "سرویس‌های پرتکرار",
-  incidents: "خطاهای اخیر",
+  incidents: "خطاهای باز اخیر",
   followups: "پیگیری‌های نزدیک",
   quality: "کیفیت داده",
   growth: "رشد داده",
@@ -146,15 +173,15 @@ const pageTitles: Record<PageKey, { title: string; kicker: string }> = {
   help: { title: "راهنما و مستندات", kicker: "روش استفاده روزمره از سامانه" },
 };
 
-const navItems: { key: PageKey; label: string; icon: string }[] = [
-  { key: "dashboard", label: "داشبورد", icon: "⌂" },
-  { key: "bugs", label: "خطاها", icon: "!" },
-  { key: "followups", label: "پیگیری‌ها", icon: "✓" },
-  { key: "services", label: "سرویس‌ها", icon: "◇" },
-  { key: "users", label: "کاربران", icon: "●" },
-  { key: "audit", label: "سوابق تغییرات", icon: "≡" },
-  { key: "automation", label: "اتصال‌ها", icon: "↻" },
-  { key: "settings", label: "تنظیمات", icon: "⚙" },
+const navItems: { key: PageKey; label: string; icon: IconName }[] = [
+  { key: "dashboard", label: "داشبورد", icon: "dashboard" },
+  { key: "bugs", label: "خطاها", icon: "incident" },
+  { key: "followups", label: "پیگیری‌ها", icon: "followup" },
+  { key: "services", label: "سرویس‌ها", icon: "service" },
+  { key: "users", label: "کاربران", icon: "users" },
+  { key: "audit", label: "سوابق تغییرات", icon: "audit" },
+  { key: "automation", label: "اتصال‌ها", icon: "automation" },
+  { key: "settings", label: "تنظیمات", icon: "settings" },
 ];
 
 const emptySnapshot: Snapshot = {
@@ -251,6 +278,48 @@ async function uploadIncidentImages(bugId: number, files: File[]) {
 
 function cx(...values: (string | false | null | undefined)[]) {
   return values.filter(Boolean).join(" ");
+}
+
+function Icon({ name, size = 18, className }: { name: IconName; size?: number; className?: string }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.9,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+    className,
+  };
+
+  const paths: Record<IconName, ReactNode> = {
+    dashboard: <><path d="M4 13.2 12 5l8 8.2" /><path d="M6.5 11.4V20h11v-8.6" /><path d="M9.5 20v-5.5h5V20" /></>,
+    incident: <><path d="M8.2 3.8h7.6l4.4 4.4v7.6l-4.4 4.4H8.2l-4.4-4.4V8.2l4.4-4.4Z" /><path d="M6.9 12h2.4l1.3-3.1 2.7 6.2 1.4-3.1h2.4" /><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" /></>,
+    followup: <><circle cx="12" cy="12" r="8.7" /><path d="m8.2 12.2 2.4 2.4 5.3-5.5" /></>,
+    service: <><rect x="4" y="4" width="6" height="6" rx="1.4" /><rect x="14" y="14" width="6" height="6" rx="1.4" /><path d="M10 7h4.2a2 2 0 0 1 2 2v5" /><path d="m13.8 12.2 2.4 2.4 2.4-2.4" /></>,
+    users: <><path d="M16 20v-1.4a4.2 4.2 0 0 0-4.2-4.2H7.7a4.2 4.2 0 0 0-4.2 4.2V20" /><circle cx="9.7" cy="7.4" r="3.3" /><path d="M16.2 4.5a3.2 3.2 0 0 1 0 6.1" /><path d="M18 14.6a4 4 0 0 1 2.5 3.7V20" /></>,
+    audit: <><path d="M8 6h11" /><path d="M8 12h11" /><path d="M8 18h11" /><circle cx="4.5" cy="6" r=".8" fill="currentColor" stroke="none" /><circle cx="4.5" cy="12" r=".8" fill="currentColor" stroke="none" /><circle cx="4.5" cy="18" r=".8" fill="currentColor" stroke="none" /></>,
+    automation: <><path d="M7.5 7.5A6.4 6.4 0 0 1 18 9" /><path d="m18 5 .2 4.2-4.2.2" /><path d="M16.5 16.5A6.4 6.4 0 0 1 6 15" /><path d="m6 19-.2-4.2 4.2-.2" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.3 13.4a7.8 7.8 0 0 0 0-2.8l2-1.5-2-3.4-2.5 1a8.7 8.7 0 0 0-2.4-1.4L14 2.7h-4l-.4 2.6a8.7 8.7 0 0 0-2.4 1.4l-2.5-1-2 3.4 2 1.5a7.8 7.8 0 0 0 0 2.8l-2 1.5 2 3.4 2.5-1a8.7 8.7 0 0 0 2.4 1.4l.4 2.6h4l.4-2.6a8.7 8.7 0 0 0 2.4-1.4l2.5 1 2-3.4-2-1.5Z" /></>,
+    search: <><circle cx="10.7" cy="10.7" r="6.2" /><path d="m15.3 15.3 4.2 4.2" /></>,
+    refresh: <><path d="M20 7v5h-5" /><path d="M18.2 15.5A7.3 7.3 0 1 1 19.7 9" /></>,
+    plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+    alert: <><path d="M12 3.3 2.9 19.2h18.2L12 3.3Z" /><path d="M12 9v4.4" /><path d="M12 16.8h.01" /></>,
+    activity: <><path d="M3 12h4l2.2-5.3 4.1 10.6 2.2-5.3H21" /></>,
+    waiting: <><circle cx="12" cy="12" r="8.7" /><path d="M12 7.5V12l3 2" /></>,
+    check: <><circle cx="12" cy="12" r="8.7" /><path d="m8.2 12.2 2.4 2.4 5.3-5.5" /></>,
+    clock: <><circle cx="12" cy="12" r="8.7" /><path d="M12 7.2V12l3.2 2" /></>,
+    menu: <><path d="M4 7h16" /><path d="M4 12h16" /><path d="M4 17h16" /></>,
+    close: <><path d="m7 7 10 10" /><path d="M17 7 7 17" /></>,
+    arrowLeft: <><path d="M19 12H5" /><path d="m10 7-5 5 5 5" /></>,
+    admin: <><path d="M12 2.9 19.2 6v5.7c0 4.7-3 8-7.2 9.6-4.2-1.6-7.2-4.9-7.2-9.6V6l7.2-3.1Z" /><path d="m12 7.1.8 1.7 1.9.3-1.4 1.4.3 1.9-1.6-.9-1.7.9.4-1.9-1.4-1.4 1.9-.3.8-1.7Z" /><path d="M8.4 16.6c1-1.4 2.2-2.1 3.6-2.1 1.5 0 2.7.7 3.6 2.1" /><path d="M9.8 14.1v-1.1" /><path d="M14.2 14.1v-1.1" /></>,
+    person: <><circle cx="12" cy="8.5" r="3.1" /><path d="M6.2 19.1c.9-2.8 3-4.3 5.8-4.3 2.9 0 5 1.5 5.9 4.3" /><path d="M4.8 19.1h14.4" /></>,
+    filter: <><path d="M4 6h16" /><path d="M7 12h10" /><path d="M10 18h4" /></>,
+  };
+
+  return <svg {...common}>{paths[name]}</svg>;
 }
 
 type ApiErrorPayload = {
@@ -384,6 +453,7 @@ export default function IncidentHub({
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const canEdit = currentUser.role === "ADMIN" || currentUser.role === "OPERATOR";
   const isAdmin = currentUser.role === "ADMIN";
 
@@ -485,6 +555,8 @@ export default function IncidentHub({
 
   const selectedBug = data.bugs.find((bug) => Number(bug.id) === selectedBugId) ?? null;
   const openBugs = data.bugs.filter((bug) => !["CLOSED", "RESOLVED"].includes(String(bug.status)));
+  const p1OpenCount = openBugs.filter((bug) => String(bug.priority) === "P1").length;
+  const waitingOpenCount = openBugs.filter((bug) => String(bug.status) === "WAITING").length;
   const overdueFollowups = data.followUps.filter((item) =>
     item.status === "SCHEDULED" && isPast(item.scheduled_at),
   );
@@ -511,6 +583,15 @@ export default function IncidentHub({
     showNotice(successMessage);
   };
 
+  const quickUpdateBug = async (id: number, payload: Record<string, unknown>) => {
+    await api(`/api/bugs/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    showNotice("تغییر سریع ذخیره شد.");
+    await reload();
+  };
+
   return (
     <div className="app-shell" dir="rtl" data-theme={preferences.theme}>
       <Sidebar
@@ -520,39 +601,54 @@ export default function IncidentHub({
         overdueCount={overdueFollowups.length}
         isAdmin={isAdmin}
         settings={data.appSettings}
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       <main className="main-area">
         <header className="topbar">
+          <button
+            className="mobile-menu-button"
+            type="button"
+            aria-label="باز کردن منوی اصلی"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Icon name="menu" size={20} />
+          </button>
           <div className="page-heading">
             <span className="page-kicker">{activePageTitle.kicker}</span>
             <h1>{activePageTitle.title}</h1>
           </div>
+          <div className="header-incident-status" aria-label="وضعیت خطاهای باز">
+            <span className="header-open-count"><i></i><strong>{faNumber(openBugs.length)}</strong><em>خطای باز</em></span>
+            {waitingOpenCount > 0 && <span className="header-waiting-count"><Icon name="waiting" size={14} /><strong>{faNumber(waitingOpenCount)}</strong><em>منتظر پاسخ</em></span>}
+            {p1OpenCount > 0 && <span className="header-p1-count"><Icon name="alert" size={14} /><strong>{faNumber(p1OpenCount)}</strong><em>P1</em></span>}
+          </div>
           <div className="topbar-actions">
             <label className="search-box">
-              <span aria-hidden="true">⌕</span>
+              <Icon name="search" size={17} />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="جست‌وجوی شناسه، موضوع یا سرویس..."
                 aria-label="جست‌وجوی خطا"
               />
-              <kbd>⌘ K</kbd>
             </label>
-            <button className="icon-button" onClick={() => void reload()} aria-label="به‌روزرسانی">
-              ↻
+            <button className="icon-button" onClick={() => void reload()} aria-label="به‌روزرسانی اطلاعات" title="به‌روزرسانی اطلاعات">
+              <Icon name="refresh" size={18} />
             </button>
             {canEdit && (
-              <button className="primary-button" onClick={() => setModal("bug")}>
-                <span>＋</span>
-                ثبت خطا
+              <button className="primary-button incident-create-button" onClick={() => setModal("bug")}>
+                <span><Icon name="plus" size={17} /></span>
+                <b>ثبت خطا</b>
               </button>
             )}
             <div className="account-menu">
               <button className="account-button" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen}>
-                <Avatar name={currentUser.fullName} />
+                <span className={cx("account-role-icon", currentUser.role.toLowerCase())} aria-hidden="true"><Icon name={currentUser.role === "ADMIN" ? "admin" : "person"} size={18} /></span>
                 <span><strong>{currentUser.fullName}</strong><small>{roleLabel(currentUser.role)}</small></span>
-                <b>⌄</b>
+                <b className="account-chevron">⌄</b>
               </button>
               {accountOpen && (
                 <div className="account-popover">
@@ -588,6 +684,7 @@ export default function IncidentHub({
               appSettings={data.appSettings}
               onSaveSettings={saveAppSettings}
               onSelectBug={(id) => setSelectedBugId(id)}
+              onQuickUpdate={quickUpdateBug}
               onSeeAll={() => setPage("bugs")}
             />
           ) : page === "bugs" ? (
@@ -599,14 +696,7 @@ export default function IncidentHub({
               adaptiveTables={preferences.adaptiveTables}
               canEdit={canEdit}
               onSelectBug={(id) => setSelectedBugId(id)}
-              onQuickUpdate={async (id, payload) => {
-                await api(`/api/bugs/${id}`, {
-                  method: "PATCH",
-                  body: JSON.stringify(payload),
-                });
-                showNotice("تغییر سریع ذخیره شد.");
-                await reload();
-              }}
+              onQuickUpdate={quickUpdateBug}
             />
           ) : page === "followups" ? (
             <FollowupsPage
@@ -724,6 +814,8 @@ function Sidebar({
   overdueCount,
   isAdmin,
   settings,
+  mobileOpen,
+  onClose,
 }: {
   active: PageKey;
   onNavigate: (key: PageKey) => void;
@@ -731,15 +823,31 @@ function Sidebar({
   overdueCount: number;
   isAdmin: boolean;
   settings: AppSettings;
+  mobileOpen: boolean;
+  onClose: () => void;
 }) {
   const availableItems = navItems.filter((item) =>
     isAdmin || !["users", "automation", "settings"].includes(item.key),
   );
+  const navigate = (key: PageKey) => {
+    onNavigate(key);
+    onClose();
+  };
+
   return (
-    <aside className="sidebar">
+    <>
+      <button
+        type="button"
+        className={cx("sidebar-backdrop", mobileOpen && "visible")}
+        aria-label="بستن منوی اصلی"
+        tabIndex={mobileOpen ? 0 : -1}
+        onClick={onClose}
+      />
+      <aside className={cx("sidebar", mobileOpen && "mobile-open")} aria-label="منوی اصلی">
       <div className="brand">
-        <div className="brand-mark"><span></span><span></span><span></span></div>
+        <div className="brand-mark" aria-hidden="true"><Icon name="incident" size={23} /><span className="brand-signal"></span></div>
         <div><strong>{settings.brand.name}</strong><small>{settings.brand.subtitle}</small></div>
+        <button className="sidebar-mobile-close" type="button" aria-label="بستن منوی اصلی" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
       <nav>
         <span className="nav-section">فضای کاری</span>
@@ -747,9 +855,10 @@ function Sidebar({
           <button
             key={item.key}
             className={cx("nav-item", active === item.key && "active")}
-            onClick={() => onNavigate(item.key)}
+            title={item.label}
+            onClick={() => navigate(item.key)}
           >
-            <span className="nav-icon">{item.icon}</span>
+            <span className="nav-icon"><Icon name={item.icon} size={17} /></span>
             <span>{item.label}</span>
             {item.key === "bugs" && openCount > 0 && <b>{faNumber(openCount)}</b>}
             {item.key === "followups" && overdueCount > 0 && <b className="danger-count">{faNumber(overdueCount)}</b>}
@@ -758,13 +867,14 @@ function Sidebar({
       </nav>
       <div className="sidebar-bottom">
         <div className="system-health">
-          <div><span className="pulse"></span><strong>ارتباط با سامانه</strong></div>
+          <div><img className="health-gif" src="/ui/system-link.gif" alt="" aria-hidden="true" /><span className="pulse"></span><strong>ارتباط با سامانه</strong></div>
           <small>اطلاعات از پایگاه داده دریافت می‌شود</small>
           <div className="health-meter"><i></i></div>
         </div>
-        <button className={cx("support-link", active === "help" && "active")} onClick={() => onNavigate("help")}><span>؟</span> راهنما و مستندات</button>
+        <button className={cx("support-link", active === "help" && "active")} onClick={() => navigate("help")}><span>؟</span> راهنما و مستندات</button>
       </div>
     </aside>
+    </>
   );
 }
 
@@ -777,6 +887,7 @@ function Dashboard({
   appSettings,
   onSaveSettings,
   onSelectBug,
+  onQuickUpdate,
   onSeeAll,
 }: {
   data: Snapshot;
@@ -787,6 +898,7 @@ function Dashboard({
   appSettings: AppSettings;
   onSaveSettings: (settings: AppSettings, successMessage?: string) => Promise<void>;
   onSelectBug: (id: number) => void;
+  onQuickUpdate: (id: number, payload: Record<string, unknown>) => Promise<void>;
   onSeeAll: () => void;
 }) {
   const [range, setRange] = useState("ALL");
@@ -794,14 +906,14 @@ function Dashboard({
   const [customTo, setCustomTo] = useState("");
   const [editing, setEditing] = useState(false);
   const [order, setOrder] = useState<WidgetKey[]>(defaultWidgetOrder);
-  const [hidden, setHidden] = useState<WidgetKey[]>([]);
+  const [hidden, setHidden] = useState<WidgetKey[]>(defaultHiddenWidgets);
   const [customTitles, setCustomTitles] = useState<Record<string, string>>(appSettings.dashboard.widgetTitles);
   const [savingTitles, setSavingTitles] = useState(false);
   const [preferencesReady, setPreferencesReady] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const saved = window.localStorage.getItem("elk-dashboard-layout-v1");
+      const saved = window.localStorage.getItem("elk-dashboard-layout-v4");
       const savedRange = window.localStorage.getItem("elk-dashboard-range-v1");
       if (savedRange) setRange(savedRange);
       if (!saved) {
@@ -817,7 +929,7 @@ function Dashboard({
         }
         if (Array.isArray(parsed.hidden)) setHidden(parsed.hidden.filter((key): key is WidgetKey => defaultWidgetOrder.includes(key)));
       } catch {
-        window.localStorage.removeItem("elk-dashboard-layout-v1");
+        window.localStorage.removeItem("elk-dashboard-layout-v4");
       }
       setPreferencesReady(true);
     }, 0);
@@ -826,7 +938,7 @@ function Dashboard({
 
   useEffect(() => {
     if (!preferencesReady) return;
-    window.localStorage.setItem("elk-dashboard-layout-v1", JSON.stringify({ order, hidden }));
+    window.localStorage.setItem("elk-dashboard-layout-v4", JSON.stringify({ order, hidden }));
     window.localStorage.setItem("elk-dashboard-range-v1", range);
   }, [order, hidden, range, preferencesReady]);
 
@@ -870,12 +982,13 @@ function Dashboard({
   const rangeBugIds = new Set(rangeBugs.map((bug) => Number(bug.id)));
   const active = rangeBugs.filter((bug) => !["CLOSED", "RESOLVED"].includes(String(bug.status)));
   const p1 = active.filter((bug) => bug.priority === "P1");
+  const newOpen = active.filter((bug) => bug.status === "NEW");
+  const inProgressOpen = active.filter((bug) => bug.status === "IN_PROGRESS");
+  const waitingOpen = active.filter((bug) => bug.status === "WAITING");
   const scheduled = data.followUps.filter((item) =>
     item.status === "SCHEDULED" && rangeBugIds.has(Number(item.bug_id)),
   );
   const overdue = scheduled.filter((item) => isPast(item.scheduled_at));
-  const resolved = rangeBugs.filter((bug) => bug.status === "RESOLVED" || bug.status === "CLOSED");
-  const resolutionRate = rangeBugs.length ? Math.round((resolved.length / rangeBugs.length) * 100) : 0;
   const assigned = rangeBugs.filter((bug) => bug.owner_id || String(bug.owner_name) !== "تعیین نشده");
   const followedBugIds = new Set(data.followUps.map((item) => Number(item.bug_id)));
   const withFollowup = rangeBugs.filter((bug) => followedBugIds.has(Number(bug.id)));
@@ -934,44 +1047,50 @@ function Dashboard({
     let content: ReactNode;
     if (key === "kpis") {
       content = (
-        <section className="stats-grid">
-          <StatCard label="خطاهای باز" value={active.length} note={`میانگین عمر ${faNumber(openAge)} روز`} icon="!" tone="orange" trend={`از ${faNumber(rangeBugs.length)} رکورد`} />
-          <StatCard label="P1 باز" value={p1.length} note="فقط موارد نیازمند اقدام" icon="◆" tone="red" trend={p1.length ? "توجه فوری" : "بدون مورد"} />
-          <StatCard label="پیگیری عقب‌افتاده" value={overdue.length} note={`از ${faNumber(scheduled.length)} پیگیری باز`} icon="◷" tone="purple" trend="نیازمند ثبت نتیجه" />
-          <StatCard label="نرخ رفع" value={`${faNumber(resolutionRate)}٪`} note={`${faNumber(resolved.length)} مورد رفع‌شده`} icon="↗" tone="green" trend="براساس بازه انتخابی" />
+        <section className="stats-grid incident-kpis">
+          <StatCard label="کل خطاهای باز" value={active.length} note={`میانگین عمر ${faNumber(openAge)} روز`} icon="incident" tone="danger" trend={p1.length ? `${faNumber(p1.length)} مورد P1` : "نیازمند پیگیری"} emphasis />
+          <StatCard label="جدید" value={newOpen.length} note="هنوز وارد چرخه پیگیری نشده" icon="alert" tone="blue" trend="وضعیت NEW" />
+          <StatCard label="در حال پیگیری" value={inProgressOpen.length} note="دارای اقدام یا بررسی فعال" icon="activity" tone="orange" trend="وضعیت فعال" />
+          <StatCard label="منتظر پاسخ" value={waitingOpen.length} note="وابسته به پاسخ یا اقدام بیرونی" icon="waiting" tone="yellow" trend="نیازمند بازبینی" />
         </section>
       );
     } else if (key === "critical") {
-      content = critical ? (
+      if (!critical) return null;
+      content = (
         <section className="critical-strip" onClick={() => onSelectBug(Number(critical.id))}>
-          <div className="critical-icon">!</div>
+          <div className="critical-icon"><Icon name="alert" size={18} /></div>
           <div>
-            <span>مورد بحرانی باز</span>
+            <span>خطای P1 باز</span>
             <strong>{String(critical.title)}</strong>
             <small>{String(critical.bug_code)} · {String(critical.service_label)} · آخرین مشاهده {formatDate(critical.last_seen_at, true)}</small>
           </div>
-          <button>{canEdit ? "بازکردن و بررسی ←" : "مشاهده جزئیات ←"}</button>
+          <button>{canEdit ? "بازکردن و بررسی" : "مشاهده جزئیات"} <Icon name="arrowLeft" size={15} /></button>
         </section>
-      ) : <section className="healthy-strip"><span>✓</span><div><strong>مورد P1 بازی ثبت نشده است</strong><small>این نتیجه فقط براساس داده‌های بازه انتخابی است.</small></div></section>;
+      );
     } else if (key === "attention") {
       const items = [
-        { label: "P1 باز", value: p1.length, text: "نیازمند بررسی فوری", tone: "red" },
-        { label: "بدون مسئول", value: unassigned.length, text: "مسئول پیگیری تعیین نشده", tone: "orange" },
-        { label: "بدون پیگیری باز", value: withoutFollowup.length, text: "اقدام بعدی ثبت نشده", tone: "purple" },
-        { label: "بدون تغییر بیش از ۴۸ ساعت", value: stale.length, text: "آخرین ویرایش قدیمی است", tone: "gray" },
-      ];
+        p1.length ? { label: "P1 باز", value: p1.length, text: "نیازمند بررسی فوری", tone: "red" } : null,
+        overdue.length ? { label: "پیگیری عقب‌افتاده", value: overdue.length, text: "موعد اقدام گذشته است", tone: "orange" } : null,
+        unassigned.length ? { label: "بدون مسئول", value: unassigned.length, text: "مسئول پیگیری تعیین نشده", tone: "yellow" } : null,
+        withoutFollowup.length ? { label: "بدون اقدام بعدی", value: withoutFollowup.length, text: "پیگیری بعدی ثبت نشده", tone: "purple" } : null,
+        stale.length ? { label: `بدون تغییر بیش از ${faNumber(appSettings.followups.staleAfterHours)} ساعت`, value: stale.length, text: "آخرین ویرایش قدیمی است", tone: "gray" } : null,
+      ].filter((item): item is { label: string; value: number; text: string; tone: string } => Boolean(item)).slice(0, 4);
       content = (
         <section className="panel attention-panel">
-          <PanelHeader title="صف نیازمند اقدام" subtitle="موارد باز که برای ادامه کار به تصمیم یا ثبت اطلاعات نیاز دارند" action={<button className="text-button" onClick={onSeeAll}>رفتن به فهرست خطاها ←</button>} />
-          <div className="attention-grid">
-            {items.map((item) => (
-              <article className={item.tone} key={item.label}>
-                <span>{item.label}</span>
-                <strong>{faNumber(item.value)}</strong>
-                <small>{item.text}</small>
-              </article>
-            ))}
-          </div>
+          <PanelHeader title="نیازمند اقدام" subtitle="فقط موارد باز که الان به توجه نیاز دارند" action={<button className="text-button" onClick={onSeeAll}>فهرست خطاها <Icon name="arrowLeft" size={14} /></button>} />
+          {items.length ? (
+            <div className="attention-grid">
+              {items.map((item) => (
+                <article className={item.tone} key={item.label}>
+                  <span>{item.label}</span>
+                  <strong>{faNumber(item.value)}</strong>
+                  <small>{item.text}</small>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="attention-empty"><img className="attention-empty-gif" src="/ui/incident-clear.gif" alt="" aria-hidden="true" /><div><strong>مورد فوری برای اقدام نیست</strong><span>در حال حاضر هیچ خطای بازِ بدون مسئول، عقب‌افتاده یا P1 ثبت نشده است.</span></div></div>
+          )}
         </section>
       );
     } else if (key === "overview") {
@@ -1009,13 +1128,13 @@ function Dashboard({
       );
     } else if (key === "incidents") {
       const recentBugs = filteredBugs
-        .filter((bug) => rangeBugIds.has(Number(bug.id)))
-        .sort((a, b) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime())
-        .slice(0, 7);
+        .filter((bug) => rangeBugIds.has(Number(bug.id)) && !["CLOSED", "RESOLVED"].includes(String(bug.status)))
+        .sort((a, b) => new Date(String(b.last_seen_at ?? b.created_at)).getTime() - new Date(String(a.last_seen_at ?? a.created_at)).getTime())
+        .slice(0, 8);
       content = (
-        <section className="panel">
-          <PanelHeader title={widgetTitle("incidents")} subtitle="مرتب‌شده براساس تاریخ ثبت، از جدید به قدیم" action={<button className="text-button" onClick={onSeeAll}>مشاهده همه ←</button>} />
-          <BugTable bugs={recentBugs} assignees={data.assignees} onSelect={onSelectBug} compact />
+        <section className="panel unified-dashboard-incidents">
+          <PanelHeader title={widgetTitle("incidents")} subtitle="فقط موارد باز؛ مرتب‌شده براساس آخرین مشاهده" action={<button className="text-button" onClick={onSeeAll}>مشاهده همه ←</button>} />
+          <BugTable bugs={recentBugs} assignees={data.assignees} onSelect={onSelectBug} compact onQuickUpdate={canEdit ? onQuickUpdate : undefined} />
         </section>
       );
     } else if (key === "followups") {
@@ -1102,7 +1221,7 @@ function Dashboard({
 
   return (
     <div className="dashboard-grid">
-      <section className="welcome-row">
+      <section className="welcome-row focus-dashboard-hero">
         <div>
           <h2>{appSettings.dashboard.welcomeTitle}</h2>
           <p>{formatDate(new Date().toISOString())} · {appSettings.dashboard.welcomeText}</p>
@@ -1116,8 +1235,8 @@ function Dashboard({
               <small>{customFrom || customTo ? `${customFrom ? formatDate(`${customFrom}T00:00:00`) : "ابتدا"} تا ${customTo ? formatDate(`${customTo}T00:00:00`) : "امروز"}` : "تاریخ شروع و پایان را انتخاب کنید"}</small>
             </div>
           )}
-          <button className={cx("secondary-button", editing && "active")} onClick={() => setEditing((value) => !value)}>{editing ? "پایان ویرایش" : "⚙ تنظیم داشبورد"}</button>
-          <div className="live-chip"><span className="pulse"></span> دریافت دوره‌ای داده</div>
+          <button className={cx("secondary-button", editing && "active")} onClick={() => setEditing((value) => !value)}>{editing ? "پایان ویرایش" : "تنظیم داشبورد"}</button>
+          <div className="live-chip">به‌روزرسانی خودکار</div>
         </div>
       </section>
 
@@ -1126,7 +1245,7 @@ function Dashboard({
           <div><strong>چیدمان و عنوان‌ها</strong><span>ترتیب و نمایش فقط در همین مرورگر می‌ماند؛ عنوان‌ها با دسترسی مدیر برای همه ذخیره می‌شوند.</span></div>
           <div className="hidden-widgets">
             {hidden.map((key) => <button key={key} onClick={() => setHidden((current) => current.filter((item) => item !== key))}>＋ {widgetTitle(key)}</button>)}
-            <button onClick={() => { setOrder(defaultWidgetOrder); setHidden([]); }}>بازنشانی چیدمان</button>
+            <button onClick={() => { setOrder(defaultWidgetOrder); setHidden(defaultHiddenWidgets); }}>بازنشانی چیدمان</button>
             {canManage && <button className="save-dashboard-titles" disabled={savingTitles} onClick={() => void saveTitles()}>{savingTitles ? "در حال ذخیره..." : "ذخیره عنوان‌ها"}</button>}
           </div>
         </section>
@@ -1201,17 +1320,19 @@ function StatCard({
   icon,
   tone,
   trend,
+  emphasis = false,
 }: {
   label: string;
   value: number | string;
   note: string;
-  icon: string;
+  icon: IconName;
   tone: string;
   trend: string;
+  emphasis?: boolean;
 }) {
   return (
-    <article className="stat-card">
-      <div className={cx("stat-icon", tone)}>{icon}</div>
+    <article className={cx("stat-card", `tone-${tone}`, emphasis && "primary-stat")}>
+      <div className={cx("stat-icon", tone)}><Icon name={icon} size={18} /></div>
       <div className="stat-top"><span>{label}</span><small>{trend}</small></div>
       <strong className="stat-value">{typeof value === "number" ? faNumber(value) : value}</strong>
       <p>{note}</p>
@@ -1253,10 +1374,11 @@ function BugsPage({
   const [owner, setOwner] = useState("ALL");
   const [attention, setAttention] = useState("ALL");
   const [sort, setSort] = useState("NEWEST_REGISTERED");
-  const [showResolved, setShowResolved] = useState(true);
+  const [showResolved, setShowResolved] = useState(false);
   const [datePreset, setDatePreset] = useState("ALL");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
   const dateMatches = (bug: Row) => {
@@ -1308,7 +1430,6 @@ function BugsPage({
     owner !== "ALL",
     attention !== "ALL",
     datePreset !== "ALL",
-    !showResolved,
   ].filter(Boolean).length;
   const resetFilters = () => {
     setPriority("ALL");
@@ -1317,7 +1438,7 @@ function BugsPage({
     setOwner("ALL");
     setAttention("ALL");
     setSort("NEWEST_REGISTERED");
-    setShowResolved(true);
+    setShowResolved(false);
     setDatePreset("ALL");
     setDateFrom("");
     setDateTo("");
@@ -1357,57 +1478,113 @@ function BugsPage({
     );
   };
 
+  const openIncidentCount = bugs.filter((bug) => !["RESOLVED", "CLOSED"].includes(String(bug.status))).length;
+  const p1IncidentCount = bugs.filter((bug) => !["RESOLVED", "CLOSED"].includes(String(bug.status)) && String(bug.priority) === "P1").length;
+  const waitingIncidentCount = bugs.filter((bug) => !["RESOLVED", "CLOSED"].includes(String(bug.status)) && String(bug.status) === "WAITING").length;
+  const overdueIncidentCount = bugs.filter((bug) => !["RESOLVED", "CLOSED"].includes(String(bug.status)) && isPast(bug.next_follow_up_at)).length;
+  const unassignedIncidentCount = bugs.filter((bug) =>
+    !["RESOLVED", "CLOSED"].includes(String(bug.status)) &&
+    !bug.owner_id &&
+    !bugAssignees(assignees, bug.id).length
+  ).length;
+
+  const quickFilters = [
+    { key: "OPEN", label: "خطاهای باز", count: openIncidentCount, icon: "incident" as IconName, tone: "open" },
+    { key: "P1", label: "P1 فوری", count: p1IncidentCount, icon: "alert" as IconName, tone: "danger" },
+    { key: "WAITING", label: "منتظر پاسخ", count: waitingIncidentCount, icon: "waiting" as IconName, tone: "waiting" },
+    { key: "OVERDUE", label: "پیگیری عقب‌افتاده", count: overdueIncidentCount, icon: "clock" as IconName, tone: "overdue" },
+    { key: "UNASSIGNED", label: "بدون مسئول", count: unassignedIncidentCount, icon: "users" as IconName, tone: "neutral" },
+  ];
+
   return (
     <section className="panel page-panel">
       <div className="filterbar professional-filterbar">
         <div className="filterbar-title">
-          <div><strong>فیلتر فهرست خطاها</strong><span>تاریخ‌ها براساس زمان ثبت رکورد محاسبه می‌شوند</span></div>
+          <div><strong>فیلتر و پایش خطاها</strong><span>موارد مهم را سریع محدود کن؛ گزینه‌های تکمیلی داخل «فیلترهای بیشتر» قرار دارند.</span></div>
           <div className="filterbar-actions">
-            <button className="export-button" onClick={exportCsv}>↓ خروجی CSV</button>
-            <button className="export-button" onClick={exportJson}>↓ خروجی JSON</button>
+            <button className="export-button" title="دریافت خروجی CSV" onClick={exportCsv}>CSV</button>
+            <button className="export-button" title="دریافت خروجی JSON" onClick={exportJson}>JSON</button>
           </div>
         </div>
-        <div className="filter-group primary-filters">
-          <select aria-label="فیلتر سرویس" value={service} onChange={(event) => setService(event.target.value)}>
-            <option value="ALL">همه سرویس‌ها</option>
-            {services.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.path)}</option>)}
-          </select>
-          <select aria-label="فیلتر مسئول" value={owner} onChange={(event) => setOwner(event.target.value)}>
-            <option value="ALL">همه مسئولان</option>
-            {users.map((user) => <option key={String(user.id)} value={String(user.id)}>{String(user.full_name)}</option>)}
-          </select>
-          <select value={priority} onChange={(event) => setPriority(event.target.value)} aria-label="فیلتر اولویت">
-            <option value="ALL">همه اولویت‌ها</option>
-            <option>P1</option><option>P2</option><option>P3</option><option>P4</option>
-          </select>
-          <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="فیلتر وضعیت">
-            <option value="ALL">همه وضعیت‌ها</option>
-            {Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </select>
-          <select aria-label="فیلتر نیازمند اقدام" value={attention} onChange={(event) => setAttention(event.target.value)}>
-            <option value="ALL">همه موارد</option>
-            <option value="OPEN">فقط موارد باز</option>
-            <option value="P1">P1 باز</option>
-            <option value="OVERDUE">پیگیری عقب‌افتاده</option>
-            <option value="UNASSIGNED">بدون مسئول</option>
-            <option value="STALE">بدون تغییر بیش از ۴۸ ساعت</option>
-          </select>
-          <select aria-label="بازه تاریخ ثبت" value={datePreset} onChange={(event) => setDatePreset(event.target.value)}>
-            <option value="ALL">تاریخ ثبت: همه</option>
-            <option value="TODAY">ثبت‌شده امروز</option>
-            <option value="7">۷ روز اخیر</option>
-            <option value="30">۳۰ روز اخیر</option>
-            <option value="90">۹۰ روز اخیر</option>
-            <option value="CUSTOM">بازه دلخواه...</option>
-          </select>
-          <select aria-label="مرتب‌سازی" value={sort} onChange={(event) => setSort(event.target.value)}>
-            <option value="NEWEST_REGISTERED">جدیدترین تاریخ ثبت</option>
-            <option value="LATEST_UPDATED">آخرین تغییر</option>
-            <option value="PRIORITY">ترتیب اولویت</option>
-            <option value="OLDEST_REGISTERED">قدیمی‌ترین تاریخ ثبت</option>
-            <option value="SERVICE">نام سرویس</option>
-          </select>
-          <label className="filter-check"><input type="checkbox" checked={showResolved} onChange={(event) => setShowResolved(event.target.checked)} /><span>نمایش رفع‌شده‌ها</span></label>
+        <div className="incident-filter-rail" role="group" aria-label="فیلترهای سریع خطا">
+          {quickFilters.map((item) => {
+            const selected = item.key === "WAITING" ? status === "WAITING" : attention === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={cx("incident-filter-chip", `tone-${item.tone}`, selected && "active")}
+                aria-pressed={selected}
+                onClick={() => {
+                  if (item.key === "WAITING") {
+                    setStatus(selected ? "ALL" : "WAITING");
+                    if (!selected) setAttention("ALL");
+                  } else {
+                    setAttention(selected ? "ALL" : item.key);
+                    if (!selected) setStatus("ALL");
+                  }
+                }}
+              >
+                <span className="incident-filter-icon"><Icon name={item.icon} size={15} /></span>
+                <span className="incident-filter-copy"><b>{item.label}</b></span>
+                <strong>{faNumber(item.count)}</strong>
+              </button>
+            );
+          })}
+        </div>
+        <div className="incident-filter-toolbar">
+          <div className="filter-primary-line">
+            <label className="filter-control"><span>وضعیت</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="فیلتر وضعیت">
+              <option value="ALL">همه وضعیت‌ها</option>
+              {Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select></label>
+            <label className="filter-control"><span>سرویس</span><select aria-label="فیلتر سرویس" value={service} onChange={(event) => setService(event.target.value)}>
+              <option value="ALL">همه سرویس‌ها</option>
+              {services.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.path)}</option>)}
+            </select></label>
+            <label className="filter-control sort-control"><span>مرتب‌سازی</span><select aria-label="مرتب‌سازی" value={sort} onChange={(event) => setSort(event.target.value)}>
+              <option value="NEWEST_REGISTERED">جدیدترین ثبت</option>
+              <option value="LATEST_UPDATED">آخرین تغییر</option>
+              <option value="PRIORITY">اولویت</option>
+              <option value="OLDEST_REGISTERED">قدیمی‌ترین ثبت</option>
+              <option value="SERVICE">نام سرویس</option>
+            </select></label>
+            <button type="button" className={cx("advanced-filter-toggle", filtersExpanded && "active")} aria-expanded={filtersExpanded} onClick={() => setFiltersExpanded((value) => !value)}>
+              <Icon name="filter" size={16} />
+              <span>فیلترهای بیشتر</span>
+              {activeFilterCount > 0 && <b>{faNumber(activeFilterCount)}</b>}
+            </button>
+            {activeFilterCount > 0 && <button type="button" className="filter-reset-compact" onClick={resetFilters}>پاک‌کردن</button>}
+          </div>
+          {filtersExpanded && (
+            <div className="filter-group advanced-filters">
+              <label className="filter-control"><span>مسئول</span><select aria-label="فیلتر مسئول" value={owner} onChange={(event) => setOwner(event.target.value)}>
+                <option value="ALL">همه مسئولان</option>
+                {users.map((user) => <option key={String(user.id)} value={String(user.id)}>{String(user.full_name)}</option>)}
+              </select></label>
+              <label className="filter-control"><span>اولویت</span><select value={priority} onChange={(event) => setPriority(event.target.value)} aria-label="فیلتر اولویت">
+                <option value="ALL">همه اولویت‌ها</option>
+                <option>P1</option><option>P2</option><option>P3</option><option>P4</option>
+              </select></label>
+              <label className="filter-control"><span>نیازمند اقدام</span><select aria-label="فیلتر نیازمند اقدام" value={attention} onChange={(event) => setAttention(event.target.value)}>
+                <option value="ALL">همه موارد</option>
+                <option value="OPEN">فقط موارد باز</option>
+                <option value="P1">P1 باز</option>
+                <option value="OVERDUE">پیگیری عقب‌افتاده</option>
+                <option value="UNASSIGNED">بدون مسئول</option>
+                <option value="STALE">بدون تغییر بیش از ۴۸ ساعت</option>
+              </select></label>
+              <label className="filter-control"><span>تاریخ ثبت</span><select aria-label="بازه تاریخ ثبت" value={datePreset} onChange={(event) => setDatePreset(event.target.value)}>
+                <option value="ALL">همه تاریخ‌ها</option>
+                <option value="TODAY">امروز</option>
+                <option value="7">۷ روز اخیر</option>
+                <option value="30">۳۰ روز اخیر</option>
+                <option value="90">۹۰ روز اخیر</option>
+                <option value="CUSTOM">بازه دلخواه...</option>
+              </select></label>
+              <label className="filter-check compact-check"><input type="checkbox" checked={showResolved} onChange={(event) => setShowResolved(event.target.checked)} /><span>نمایش رفع‌شده‌ها</span></label>
+            </div>
+          )}
         </div>
         {datePreset === "CUSTOM" && (
           <div className="custom-date-filter-panel">
@@ -1447,62 +1624,74 @@ function BugTable({
   onQuickUpdate?: (id: number, payload: Record<string, unknown>) => Promise<void>;
 }) {
   return (
-    <div className="table-wrap">
-      <table className="bug-table">
+    <div className={cx("table-wrap", "unified-records", compact && "compact-records")}>
+      <table className="bug-table modern-record-table">
         <thead>
           <tr>
             <th>شناسه و موضوع</th>
             <th>سرویس</th>
-            {!compact && <th>ثبت</th>}
-            <th>اولویت</th>
-            <th>وضعیت</th>
+            <th className="priority-col">اولویت</th>
+            <th className="status-col">وضعیت</th>
             {!compact && <th>مسئول</th>}
-            {!compact && adaptiveColumns && <th>منبع</th>}
-            {!compact && adaptiveColumns && <th>دفعات مشاهده</th>}
-            {!compact && adaptiveColumns && <th>آخرین مشاهده</th>}
             <th>پیگیری بعدی</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {bugs.map((bug) => {
+          {bugs.map((bug, index) => {
             const owners = bugAssignees(assignees, bug.id);
+            const isOpen = !["CLOSED", "RESOLVED"].includes(String(bug.status));
             return (
-            <tr className={cx("bug-row", `status-row-${String(bug.status).toLowerCase()}`, `priority-row-${String(bug.priority).toLowerCase()}`)} key={String(bug.id)} onClick={() => onSelect(Number(bug.id))}>
-              <td>
-                <span className="bug-code">{String(bug.bug_code)}</span>
+            <tr
+              className={cx("bug-row", isOpen && "is-open", `status-row-${String(bug.status).toLowerCase()}`, `priority-row-${String(bug.priority).toLowerCase()}`)}
+              key={String(bug.id)}
+              tabIndex={0}
+              aria-label={`${String(bug.bug_code)} - ${String(bug.title)}`}
+              style={{ animationDelay: `${Math.min(index, 12) * 26}ms` }}
+              onClick={() => onSelect(Number(bug.id))}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(Number(bug.id));
+                }
+              }}
+            >
+              <td data-label="خطا" className="incident-record-main">
+                <div className="bug-code-line">
+                  <span className="bug-code">{String(bug.bug_code)}</span>
+                  {isOpen && <span className="open-state-pill"><Icon name="activity" size={12} /><i></i>باز</span>}
+                </div>
                 <strong className="bug-title">{String(bug.title)}</strong>
-                <div className="bug-observation-summary"><span>ثبت {formatDate(bug.created_at)}</span><span>آخرین مشاهده {formatRelativeDate(bug.last_seen_at)}</span><b>{faNumber(bug.occurrence_count)} بار</b></div>
+                <div className="bug-observation-summary"><span>ثبت {formatDate(bug.created_at)}</span><span>آخرین مشاهده {formatRelativeDate(bug.last_seen_at)}</span><b>{faNumber(bug.occurrence_count)} بار</b><em>{sourceLabels[String(bug.source)] ?? String(bug.source)}</em></div>
               </td>
-              <td><span className="service-path">{String(bug.service_label).replace("ELK > ", "")}</span></td>
-              {!compact && <td><TableDate value={bug.created_at} /></td>}
-              <td>{onQuickUpdate ? (
+              <td data-label="سرویس" className="service-record-cell"><span className="service-path">{String(bug.service_label).replace("ELK > ", "")}</span></td>
+              <td data-label="اولویت" className={cx("priority-cell", `priority-${String(bug.priority).toLowerCase()}`)}>{onQuickUpdate ? (
                 <select
                   className={cx("inline-select", `priority-${String(bug.priority).toLowerCase()}`)}
                   value={String(bug.priority)}
                   aria-label={`اولویت ${String(bug.bug_code)}`}
+                  title="تغییر اولویت"
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => void onQuickUpdate(Number(bug.id), { priority: event.target.value })}
                 ><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
               ) : <PriorityBadge value={String(bug.priority)} />}</td>
-              <td>{onQuickUpdate ? (
+              <td data-label="وضعیت" className={cx("status-cell", `status-${String(bug.status).toLowerCase()}`)}>{onQuickUpdate ? (
                 <select
                   className={cx("inline-select", "status", `status-${String(bug.status).toLowerCase()}`)}
                   value={String(bug.status)}
                   aria-label={`وضعیت ${String(bug.bug_code)}`}
+                  title="تغییر وضعیت"
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => void onQuickUpdate(Number(bug.id), { status: event.target.value })}
                 >{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
               ) : <StatusBadge value={String(bug.status)} />}</td>
-              {!compact && <td><AssigneeSummary owners={owners} fallback={String(bug.owner_name)} /></td>}
-              {!compact && adaptiveColumns && <td><span className="source-badge">{sourceLabels[String(bug.source)] ?? String(bug.source)}</span></td>}
-              {!compact && adaptiveColumns && <td><span className="occurrence-cell"><strong>{faNumber(bug.occurrence_count)}</strong><small>بار</small></span></td>}
-              {!compact && adaptiveColumns && <td><TableDate value={bug.last_seen_at} /></td>}
-              <td><TableDate value={bug.next_follow_up_at} late={isPast(bug.next_follow_up_at)} emptyLabel="بدون موعد" /></td>
-              <td><button className="row-action" aria-label="مشاهده">•••</button></td>
+              {!compact && <td data-label="مسئول" className="assignee-record-cell"><AssigneeSummary owners={owners} fallback={String(bug.owner_name)} /></td>}
+              <td data-label="پیگیری بعدی"><TableDate value={bug.next_follow_up_at} late={isPast(bug.next_follow_up_at)} emptyLabel="بدون موعد" /></td>
+              <td className="row-menu-cell"><button className="row-action" aria-label="مشاهده جزئیات" title="باز کردن جزئیات"><Icon name="arrowLeft" size={16} /></button></td>
             </tr>
           );})}
-          {!bugs.length && <tr><td colSpan={compact ? 6 : adaptiveColumns ? 11 : 8}><EmptyState title="رکوردی پیدا نشد" text="فیلتر یا عبارت جست‌وجو را تغییر دهید." /></td></tr>}
+          {!bugs.length && <tr><td colSpan={compact ? 6 : 7}><EmptyState title="رکوردی پیدا نشد" text="فیلتر یا عبارت جست‌وجو را تغییر دهید." /></td></tr>}
         </tbody>
       </table>
     </div>
@@ -1709,7 +1898,7 @@ function FollowupsPage({
                 </div>
                 <button className="followup-bug-link" onClick={() => bug && onOpenBug(Number(bug.id))}><span>{String(bug?.bug_code ?? "بدون شناسه")}</span><strong>{String(bug?.title ?? "خطای مرتبط")}</strong></button>
                 <div className="followup-next-action"><span>{isDone || isCancelled ? "نتیجه" : "اقدام بعدی"}</span><p>{String((isDone || isCancelled ? item.result : item.next_action) || "هنوز توضیحی ثبت نشده است.")}</p></div>
-                <div className="followup-card-footer"><div className="task-owner"><Avatar name={String(item.owner_name)} /><span><small>مسئول</small>{String(item.owner_name)}</span></div>{bug && <PriorityBadge value={String(bug.priority ?? "P3")} />}</div>
+                <div className="followup-card-footer"><div className="task-owner"><span className="task-owner-badge" aria-hidden="true"><Icon name="person" size={14} /></span><Avatar name={String(item.owner_name)} /><span><small>مسئول پیگیری</small>{String(item.owner_name)}</span></div>{bug && <PriorityBadge value={String(bug.priority ?? "P3")} />}</div>
                 {canEdit && item.status === "SCHEDULED" && (
                   <div className="followup-actions">
                     <button className="primary-button small" onClick={() => setAction({ mode: "COMPLETE", item })}>ثبت نتیجه</button>
@@ -2110,10 +2299,11 @@ function SettingsPage({
   onRefresh: () => Promise<void>;
 }) {
   const themes: { key: AppPreferences["theme"]; name: string; description: string; colors: string[] }[] = [
-    { key: "forest", name: "سبز", description: "تم اصلی برای استفاده روزانه", colors: ["#132820", "#1f8f63", "#f5f7f6"] },
-    { key: "ocean", name: "آبی", description: "نمای خنک و مناسب مانیتورینگ", colors: ["#102b3a", "#287da8", "#f2f7fa"] },
-    { key: "violet", name: "بنفش", description: "تفکیک بیشتر بین بخش‌ها", colors: ["#28223d", "#7458b4", "#f7f4fb"] },
-    { key: "amber", name: "گرم", description: "پس‌زمینه گرم و آرام", colors: ["#35261d", "#b76a2c", "#faf6f1"] },
+    { key: "forest", name: "Sage روشن", description: "خنثی، آرام و مناسب استفاده روزانه", colors: ["#10271e", "#16805a", "#f4f7f5"] },
+    { key: "ocean", name: "Ocean روشن", description: "آبی خنثی برای مانیتورینگ و داده", colors: ["#0d2a3a", "#197da8", "#f3f7fa"] },
+    { key: "violet", name: "Violet روشن", description: "تفکیک نرم پنل‌ها با Accent بنفش", colors: ["#2b2440", "#7259c7", "#f7f5fb"] },
+    { key: "amber", name: "Sand روشن", description: "گرم، کم‌تنش و مناسب محیط اداری", colors: ["#34261d", "#ae672d", "#faf7f2"] },
+    { key: "dark", name: "Obsidian Focus", description: "دارک یکدست با تفکیک واضح‌تر وضعیت‌ها، Accent فیروزه‌ای و تمرکز بیشتر روی Incident", colors: ["#0a0f16", "#2dd4bf", "#141d2a"] },
   ];
   const [draft, setDraft] = useState<AppSettings>(appSettings);
   const [typesText, setTypesText] = useState(appSettings.followups.types.join("\n"));
@@ -2426,28 +2616,42 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
   const [recommendedTemplateKey, setRecommendedTemplateKey] = useState("INCIDENT_ACTION");
   const [templates, setTemplates] = useState<Row[]>([]);
   const [history, setHistory] = useState<Row[]>([]);
+  const [attachments, setAttachments] = useState<Row[]>([]);
+  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<number[]>([]);
+  const [maxInlineImageBytes, setMaxInlineImageBytes] = useState(18 * 1024 * 1024);
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [insights, setInsights] = useState<{
     status: string;
+    priority: string;
     incidentType: string;
     errorLabel: string;
     endpoints: string[];
     observedCount: number | null;
     service: string;
+    firstSeen: string;
+    lastSeen: string;
+    attachmentCount: number;
+    latestFollowUp: { type: string; status: string; owner: string; result: string; scheduledAt: string } | null;
   }>({
     status: "نامشخص",
+    priority: "نامشخص",
     incidentType: "اختلال سرویس",
     errorLabel: "خطا",
     endpoints: [],
     observedCount: null,
     service: "سرویس مربوطه",
+    firstSeen: "نامشخص",
+    lastSeen: "نامشخص",
+    attachmentCount: 0,
+    latestFollowUp: null,
   });
   const [deliveryConfigured, setDeliveryConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<"DRAFT" | "QUEUE" | null>(null);
+  const [preparingEml, setPreparingEml] = useState(false);
   const [mailApp, setMailApp] = useState<"outlook-classic" | "system" | "outlook-web">("outlook-classic");
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState("");
@@ -2466,13 +2670,20 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
           recommendedTemplateKey: string;
           context: {
             status: string;
+            priority: string;
             incidentType: string;
             errorLabel: string;
             endpoints: string[];
             observedCount: number | null;
             service: string;
+            firstSeen: string;
+            lastSeen: string;
+            attachmentCount: number;
+            latestFollowUp: { type: string; status: string; owner: string; result: string; scheduledAt: string } | null;
           };
         };
+        attachments: Row[];
+        maxInlineImageBytes: number;
         templates: Row[];
         history: Row[];
         deliveryConfigured: boolean;
@@ -2486,6 +2697,25 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
       setInsights(result.draft.context);
       setTemplates(result.templates);
       setHistory(result.history);
+      setAttachments(result.attachments);
+      const inlineLimit = result.maxInlineImageBytes || 18 * 1024 * 1024;
+      setMaxInlineImageBytes(inlineLimit);
+      setSelectedAttachmentIds((current) => {
+        const available = result.attachments.map((item) => ({
+          id: Number(item.id),
+          size: Number(item.size_bytes ?? 0),
+        }));
+        const preferredIds = current.length
+          ? current.filter((id) => available.some((item) => item.id === id))
+          : available.map((item) => item.id);
+        let total = 0;
+        return preferredIds.filter((id) => {
+          const size = available.find((item) => item.id === id)?.size ?? 0;
+          if (total + size > inlineLimit) return false;
+          total += size;
+          return true;
+        });
+      });
       setDeliveryConfigured(result.deliveryConfigured);
     } catch (requestError) {
       setFormError(requestError instanceof Error ? requestError.message : "ساخت قالب ایمیل انجام نشد.");
@@ -2499,6 +2729,31 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
     return () => window.clearTimeout(timer);
   }, [loadTemplate]);
 
+  const selectedAttachments = useMemo(
+    () => attachments.filter((item) => selectedAttachmentIds.includes(Number(item.id))),
+    [attachments, selectedAttachmentIds],
+  );
+  const selectedAttachmentBytes = selectedAttachments.reduce((sum, item) => sum + Number(item.size_bytes ?? 0), 0);
+  const selectedAttachmentMb = selectedAttachmentBytes / 1024 / 1024;
+  const maxInlineImageMb = maxInlineImageBytes / 1024 / 1024;
+
+  const toggleAttachment = (attachmentId: number) => {
+    setMessage("");
+    setFormError("");
+    setSelectedAttachmentIds((current) => {
+      if (current.includes(attachmentId)) return current.filter((id) => id !== attachmentId);
+      const next = [...current, attachmentId];
+      const nextBytes = attachments
+        .filter((item) => next.includes(Number(item.id)))
+        .reduce((sum, item) => sum + Number(item.size_bytes ?? 0), 0);
+      if (nextBytes > maxInlineImageBytes) {
+        setFormError(`حجم مجموع تصاویر ایمیل نباید بیشتر از ${maxInlineImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} مگابایت باشد.`);
+        return current;
+      }
+      return next;
+    });
+  };
+
   const persist = async (action: "DRAFT" | "QUEUE") => {
     setSaving(action);
     setMessage("");
@@ -2506,7 +2761,7 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
     try {
       const result = await api<{ email: Row; message: string }>(`/api/bugs/${bugId}/emails`, {
         method: "POST",
-        body: JSON.stringify({ action, to, cc, subject, body, templateKey }),
+        body: JSON.stringify({ action, to, cc, subject, body, templateKey, attachmentIds: selectedAttachmentIds }),
       });
       setHistory((current) => [result.email, ...current.filter((item) => Number(item.id) !== Number(result.email.id))]);
       setMessage(result.message);
@@ -2517,40 +2772,94 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
     }
   };
 
-  const copyEmail = async () => {
+  const fallbackCopyText = (value: string) => {
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.setAttribute("aria-hidden", "true");
+    textarea.style.position = "fixed";
+    textarea.style.inset = "0 auto auto -9999px";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    document.body.appendChild(textarea);
+
     try {
-      await navigator.clipboard.writeText(`گیرنده: ${to}\nرونوشت: ${cc || "—"}\nموضوع: ${subject}\n\n${body}`);
-      setMessage("متن کامل ایمیل کپی شد.");
+      textarea.focus({ preventScroll: true });
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      return document.execCommand("copy");
     } catch {
-      setFormError("کپی خودکار ممکن نشد؛ متن را به‌صورت دستی انتخاب کنید.");
+      return false;
+    } finally {
+      textarea.remove();
+      activeElement?.focus({ preventScroll: true });
     }
   };
 
-  const downloadEml = () => {
-    const bytes = new TextEncoder().encode(subject);
-    let binary = "";
-    bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-    const encodedSubject = `=?UTF-8?B?${window.btoa(binary)}?=`;
-    const eml = [
-      `To: ${to}`,
-      cc.trim() ? `Cc: ${cc}` : "",
-      `Subject: ${encodedSubject}`,
-      "MIME-Version: 1.0",
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: 8bit",
-      "",
-      body.replace(/\n/g, "\r\n"),
-    ].filter((line, index) => line || index > 5).join("\r\n");
-    const blob = new Blob([eml], { type: "message/rfc822;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${bugCode.replace(/[^A-Za-z0-9_-]/g, "_")}.eml`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setMessage("فایل EML آماده شد؛ فایل دانلودشده را با Outlook Classic باز کنید.");
+  const writeClipboard = async (value: string, successMessage: string) => {
+    setMessage("");
+    setFormError("");
+
+    let copied = false;
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+
+    if (!copied) copied = fallbackCopyText(value);
+
+    if (copied) {
+      setMessage(successMessage);
+      return;
+    }
+
+    setFormError("مرورگر اجازه دسترسی به Clipboard را نداد. متن را انتخاب کرده و Ctrl+C بزنید.");
+  };
+
+  const copyBody = () => writeClipboard(body, "متن ایمیل کپی شد.");
+  const copySubject = () => writeClipboard(subject, "موضوع ایمیل کپی شد.");
+  const copyFullEmail = () => writeClipboard(
+    `گیرنده: ${to || "—"}\nرونوشت: ${cc || "—"}\nموضوع: ${subject}\n\n${body}`,
+    "ایمیل کامل شامل گیرنده، موضوع و متن کپی شد.",
+  );
+
+  const downloadEml = async () => {
+    setPreparingEml(true);
+    setMessage("");
+    setFormError("");
+    try {
+      const response = await fetch(`/api/bugs/${bugId}/emails/eml`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to, cc, subject, body, attachmentIds: selectedAttachmentIds }),
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || `ساخت فایل ایمیل با خطا روبه‌رو شد (HTTP ${response.status}).`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${bugCode.replace(/[^A-Za-z0-9_-]/g, "_")}.eml`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage(selectedAttachmentIds.length
+        ? `${selectedAttachmentIds.length.toLocaleString("fa-IR")} تصویر داخل فایل EML قرار گرفت. فایل را با Outlook Classic باز کنید.`
+        : "فایل EML آماده شد؛ فایل دانلودشده را با Outlook Classic باز کنید.");
+    } catch (requestError) {
+      setFormError(requestError instanceof Error ? requestError.message : "ساخت فایل EML انجام نشد.");
+    } finally {
+      setPreparingEml(false);
+    }
   };
 
   const openMailClient = () => {
@@ -2560,8 +2869,11 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
     }
     setFormError("");
     if (mailApp === "outlook-classic") {
-      downloadEml();
+      void downloadEml();
       return;
+    }
+    if (selectedAttachmentIds.length) {
+      setMessage("در Outlook Web و برنامه پیش‌فرض مرورگر امکان درج خودکار تصویر وجود ندارد؛ برای ایمیل همراه تصویر، Outlook Classic (EML) را انتخاب کنید.");
     }
     if (mailApp === "outlook-web") {
       const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to.replace(/\s+/g, ""))}&cc=${encodeURIComponent(cc.replace(/\s+/g, ""))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -2581,21 +2893,28 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
   return (
     <section className="email-composer">
       <div className="email-composer-intro">
-        <div><span>✉</span><div><strong>ایمیل رخداد {bugCode}</strong><p>قالب مناسب بر اساس نوع رخداد، وضعیت، کد خطا و Endpointهای ثبت‌شده پیشنهاد می‌شود.</p></div></div>
+        <div><span>✉</span><div><strong>ایمیل رخداد {bugCode}</strong><p>قالب با توجه به وضعیت، اولویت، Endpointها، زمان مشاهده، آخرین پیگیری و تصاویر ثبت‌شده ساخته می‌شود.</p></div></div>
         <span className={deliveryConfigured ? "connected" : "needs-config"}><i></i>{deliveryConfigured ? "ارسال خودکار متصل" : "ارسال خودکار تنظیم نشده"}</span>
       </div>
 
       <div className="email-insights">
         <div className="email-insights-header">
-          <div><strong>جمع‌بندی خودکار رخداد</strong><small>این موارد از اطلاعات ثبت‌شده استخراج شده‌اند و در ساخت قالب استفاده می‌شوند.</small></div>
+          <div><strong>جمع‌بندی هوشمند رخداد</strong><small>فقط از اطلاعات ثبت‌شده در Incident استفاده می‌شود؛ داده‌ای حدس زده نمی‌شود.</small></div>
           {templateKey !== recommendedTemplateKey && <button className="secondary-button" onClick={() => void loadTemplate(recommendedTemplateKey)}>استفاده از قالب پیشنهادی</button>}
         </div>
         <div className="email-insight-chips">
           <span><b>نوع</b>{insights.incidentType}</span>
           <span><b>وضعیت</b>{insights.status}</span>
+          <span><b>اولویت</b>{insights.priority}</span>
           <span><b>خطا</b>{insights.errorLabel}</span>
           {insights.observedCount && <span><b>تعداد مشاهده</b>{insights.observedCount.toLocaleString("fa-IR")}</span>}
+          <span><b>تصاویر</b>{insights.attachmentCount.toLocaleString("fa-IR")}</span>
           <span className={templateKey === recommendedTemplateKey ? "recommended" : ""}><b>قالب پیشنهادی</b>{String(templates.find((item) => String(item.key) === recommendedTemplateKey)?.name ?? "درخواست بررسی رسمی")}</span>
+        </div>
+        <div className="email-time-summary">
+          <span><b>اولین مشاهده</b>{insights.firstSeen}</span>
+          <span><b>آخرین مشاهده</b>{insights.lastSeen}</span>
+          {insights.latestFollowUp && <span><b>آخرین پیگیری</b>{insights.latestFollowUp.type} · {insights.latestFollowUp.status}{insights.latestFollowUp.owner ? ` · ${insights.latestFollowUp.owner}` : ""}</span>}
         </div>
         {insights.endpoints.length > 0 && (
           <div className="detected-endpoints">
@@ -2623,6 +2942,43 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
         <span className={hasActionRequest ? "ok" : "warn"}>{hasActionRequest ? "✓ اقدام اصلاحی یا پیشگیرانه درخواست شده" : "! اقدام بعدی در متن مشخص نیست"}</span>
       </div>
 
+      {attachments.length > 0 && (
+        <div className="email-attachment-picker">
+          <div className="email-attachment-picker-head">
+            <div><strong>تصاویر داخل ایمیل</strong><span>تصاویر منتخب در خروجی Outlook Classic به‌صورت Inline داخل خود ایمیل قرار می‌گیرند.</span></div>
+            <button type="button" className="text-button" onClick={() => {
+              if (selectedAttachmentIds.length === attachments.length) {
+                setSelectedAttachmentIds([]);
+              } else {
+                const total = attachments.reduce((sum, item) => sum + Number(item.size_bytes ?? 0), 0);
+                if (total > maxInlineImageBytes) {
+                  setFormError(`حجم همه تصاویر بیشتر از ${maxInlineImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} مگابایت است؛ تصاویر را جداگانه انتخاب کنید.`);
+                  return;
+                }
+                setSelectedAttachmentIds(attachments.map((item) => Number(item.id)));
+              }
+            }}>{selectedAttachmentIds.length === attachments.length ? "لغو انتخاب همه" : "انتخاب همه"}</button>
+          </div>
+          <div className="email-attachment-grid">
+            {attachments.map((item) => {
+              const id = Number(item.id);
+              const selected = selectedAttachmentIds.includes(id);
+              return (
+                <label key={id} className={cx("email-attachment-card", selected && "selected")}>
+                  <input type="checkbox" checked={selected} onChange={() => toggleAttachment(id)} />
+                  <img src={String(item.url || `/api/bug-attachments/${id}`)} alt={String(item.original_name)} />
+                  <span><strong>{String(item.original_name)}</strong><small>{(Number(item.size_bytes) / 1024 / 1024).toLocaleString("fa-IR", { maximumFractionDigits: 2 })} MB</small></span>
+                </label>
+              );
+            })}
+          </div>
+          <div className={cx("email-attachment-summary", selectedAttachmentBytes > maxInlineImageBytes * 0.85 && "near-limit")}>
+            <span>{selectedAttachmentIds.length.toLocaleString("fa-IR")} تصویر انتخاب شده</span>
+            <strong>{selectedAttachmentMb.toLocaleString("fa-IR", { maximumFractionDigits: 2 })} / {maxInlineImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} MB</strong>
+          </div>
+        </div>
+      )}
+
       <div className="email-fields">
         <label><span>گیرندگان *</span><input value={to} onChange={(event) => setTo(event.target.value)} placeholder="name@company.com, team@company.com" dir="ltr" /></label>
         <label><span>رونوشت (CC)</span><input value={cc} onChange={(event) => setCc(event.target.value)} placeholder="manager@company.com" dir="ltr" /></label>
@@ -2633,15 +2989,19 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
       {message && <div className="email-message success">{message}</div>}
       {formError && <div className="email-message error">{formError}</div>}
 
-      <div className="email-actions">
-        <button className="cancel-button" onClick={() => void copyEmail()}>کپی متن</button>
+      <div className="email-actions email-actions-v2">
+        <div className="email-copy-actions">
+          <button className="cancel-button" type="button" onClick={() => void copyBody()}>کپی متن</button>
+          <button className="cancel-button" type="button" onClick={() => void copySubject()}>کپی موضوع</button>
+          <button className="cancel-button" type="button" onClick={() => void copyFullEmail()}>کپی کامل</button>
+        </div>
         <div className="mail-app-picker">
           <select value={mailApp} onChange={(event) => setMailApp(event.target.value as typeof mailApp)} aria-label="انتخاب برنامه ایمیل">
-            <option value="outlook-classic">Outlook Classic (فایل EML)</option>
+            <option value="outlook-classic">Outlook Classic (EML + تصاویر)</option>
             <option value="system">برنامه پیش‌فرض سیستم</option>
             <option value="outlook-web">Outlook Web</option>
           </select>
-          <button className="secondary-button" onClick={openMailClient}>{mailApp === "outlook-classic" ? "آماده‌سازی برای Outlook Classic" : "باز کردن برنامه"}</button>
+          <button className="secondary-button" disabled={preparingEml} onClick={openMailClient}>{mailApp === "outlook-classic" ? (preparingEml ? "در حال آماده‌سازی…" : "ساخت ایمیل Outlook") : "باز کردن برنامه"}</button>
         </div>
         {canEdit && <button className="secondary-button" disabled={Boolean(saving)} onClick={() => void persist("DRAFT")}>{saving === "DRAFT" ? "در حال ذخیره…" : "ذخیره پیش‌نویس"}</button>}
         {canEdit && <button className="primary-button" disabled={Boolean(saving)} onClick={() => void persist("QUEUE")}>{saving === "QUEUE" ? "در حال ثبت…" : deliveryConfigured ? "ارسال ایمیل" : "ثبت در صف ارسال"}</button>}
@@ -2930,7 +3290,7 @@ function SimpleCreateForm({
 }
 
 function EmptyState({ title, text }: { title: string; text: string }) {
-  return <div className="empty-state"><span>◇</span><strong>{title}</strong><p>{text}</p></div>;
+  return <div className="empty-state"><img className="empty-state-gif" src="/ui/incident-radar.gif" alt="" aria-hidden="true" /><strong>{title}</strong><p>{text}</p></div>;
 }
 
 function LoadingState() {
