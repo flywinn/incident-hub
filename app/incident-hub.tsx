@@ -1,6 +1,6 @@
 "use client";
 
-/* IncidentHub UI v1.9 · Unified Surface */
+/* IncidentHub UI v1.11.3 · Simple Login + Self-service Username */
 
 import {
   FormEvent,
@@ -75,7 +75,8 @@ type CurrentUser = {
   id: number;
   fullName: string;
   email: string;
-  role: "ADMIN" | "OPERATOR" | "VIEWER";
+  username: string;
+  role: "SUPER_ADMIN" | "ADMIN" | "OPERATOR" | "VIEWER";
   team: string;
   isActive: boolean;
 };
@@ -158,7 +159,7 @@ const sourceLabels: Record<string, string> = {
 };
 
 function roleLabel(role: CurrentUser["role"]) {
-  return role === "ADMIN" ? "مدیر سامانه" : role === "OPERATOR" ? "کارشناس" : "مشاهده‌گر";
+  return role === "SUPER_ADMIN" ? "سوپر ادمین" : role === "ADMIN" ? "مدیر سامانه" : role === "OPERATOR" ? "کارشناس" : "مشاهده‌گر";
 }
 
 const pageTitles: Record<PageKey, { title: string; kicker: string }> = {
@@ -382,6 +383,9 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
       }
 
       if (!response.ok) {
+        if (response.status === 401 && window.location.pathname !== "/login") {
+          window.location.assign("/login");
+        }
         const serverRequestId = payload?.requestId || response.headers.get("x-request-id") || requestId;
         const retryable = payload?.retryable === true || [502, 503, 504].includes(response.status);
         const error = new ApiClientError(
@@ -437,9 +441,11 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 export default function IncidentHub({
   currentUser,
   signOutPath,
+  authMode,
 }: {
   currentUser: CurrentUser;
   signOutPath: string;
+  authMode: "LOCAL" | "PROXY" | "DISABLED";
 }) {
   const [page, setPage] = useState<PageKey>("dashboard");
   const [data, setData] = useState<Snapshot>(emptySnapshot);
@@ -454,8 +460,11 @@ export default function IncidentHub({
   const [lastUpdatedAt, setLastUpdatedAt] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const canEdit = currentUser.role === "ADMIN" || currentUser.role === "OPERATOR";
-  const isAdmin = currentUser.role === "ADMIN";
+  const [passwordUser, setPasswordUser] = useState<Row | null>(null);
+  const [usernameOpen, setUsernameOpen] = useState(false);
+  const canEdit = ["SUPER_ADMIN", "ADMIN", "OPERATOR"].includes(currentUser.role);
+  const isAdmin = currentUser.role === "SUPER_ADMIN" || currentUser.role === "ADMIN";
+  const isSuperAdmin = currentUser.role === "SUPER_ADMIN";
 
   const reload = useCallback(async () => {
     try {
@@ -646,16 +655,23 @@ export default function IncidentHub({
             )}
             <div className="account-menu">
               <button className="account-button" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen}>
-                <span className={cx("account-role-icon", currentUser.role.toLowerCase())} aria-hidden="true"><Icon name={currentUser.role === "ADMIN" ? "admin" : "person"} size={18} /></span>
+                <span className={cx("account-role-icon", currentUser.role.toLowerCase())} aria-hidden="true"><Icon name={["SUPER_ADMIN", "ADMIN"].includes(currentUser.role) ? "admin" : "person"} size={18} /></span>
                 <span><strong>{currentUser.fullName}</strong><small>{roleLabel(currentUser.role)}</small></span>
                 <b className="account-chevron">⌄</b>
               </button>
               {accountOpen && (
                 <div className="account-popover">
                   <strong>{currentUser.fullName}</strong>
+                  {currentUser.username && <span dir="ltr">@{currentUser.username}</span>}
                   <span dir="ltr">{currentUser.email}</span>
                   <small>{currentUser.team} · {roleLabel(currentUser.role)}</small>
-                  {signOutPath ? <a href={signOutPath}>خروج از حساب</a> : <span>ورود یکپارچه ویندوز</span>}
+                  {authMode === "LOCAL" && <button type="button" className="account-password-action" onClick={() => { setAccountOpen(false); setUsernameOpen(true); }}>{currentUser.username ? "تغییر نام کاربری" : "تنظیم نام کاربری"}</button>}
+                  {authMode === "LOCAL" && <button type="button" className="account-password-action" onClick={() => { setAccountOpen(false); setPasswordUser({ id: currentUser.id, full_name: currentUser.fullName, email: currentUser.email, username: currentUser.username, role: currentUser.role, team: currentUser.team, is_active: currentUser.isActive ? 1 : 0 }); }}>تغییر رمز عبور من</button>}
+                  {authMode === "LOCAL" ? (
+                    <form className="account-signout-form" action={signOutPath || "/api/auth/logout"} method="post">
+                      <button type="submit" className="account-password-action account-signout-action">خروج از حساب</button>
+                    </form>
+                  ) : authMode === "PROXY" ? <span>ورود یکپارچه ویندوز</span> : <span>حالت توسعه بدون ورود</span>}
                 </div>
               )}
             </div>
@@ -724,9 +740,11 @@ export default function IncidentHub({
             <UsersPage
               users={data.users}
               currentUserId={currentUser.id}
+              currentUserRole={currentUser.role}
               onNew={() => setModal("user")}
+              onPassword={(user) => setPasswordUser(user)}
               onUpdated={async () => {
-                showNotice("اطلاعات مسئول ذخیره شد.");
+                showNotice("اطلاعات کاربر ذخیره شد.");
                 await reload();
               }}
             />
@@ -793,12 +811,36 @@ export default function IncidentHub({
           }}
         />
       )}
-      {isAdmin && modal === "user" && (
+      {isSuperAdmin && modal === "user" && (
         <NewUserModal
           onClose={() => setModal(null)}
           onCreated={async () => {
             setModal(null);
             showNotice("کاربر جدید ثبت شد.");
+            await reload();
+          }}
+        />
+      )}
+      {usernameOpen && (
+        <UsernameModal
+          currentUsername={currentUser.username}
+          email={currentUser.email}
+          onClose={() => setUsernameOpen(false)}
+          onChanged={async () => {
+            setUsernameOpen(false);
+            window.location.reload();
+          }}
+        />
+      )}
+      {passwordUser && (
+        <ChangePasswordModal
+          user={passwordUser}
+          isCurrentUser={Number(passwordUser.id) === currentUser.id}
+          actorRole={currentUser.role}
+          onClose={() => setPasswordUser(null)}
+          onChanged={async () => {
+            setPasswordUser(null);
+            showNotice(Number(passwordUser.id) === currentUser.id ? "رمز عبور شما تغییر کرد." : "رمز عبور کاربر بازنشانی شد.");
             await reload();
           }}
         />
@@ -2033,27 +2075,61 @@ function ServicesPage({ services, canManage, onNew, onUpdated }: { services: Row
   );
 }
 
-function UsersPage({ users, currentUserId, onNew, onUpdated }: { users: Row[]; currentUserId: number; onNew: () => void; onUpdated: () => Promise<void> }) {
-  const roleLabels: Record<string, string> = { ADMIN: "مدیر سامانه", OPERATOR: "کارشناس", VIEWER: "مشاهده‌گر" };
+function UsersPage({
+  users,
+  currentUserId,
+  currentUserRole,
+  onNew,
+  onPassword,
+  onUpdated,
+}: {
+  users: Row[];
+  currentUserId: number;
+  currentUserRole: CurrentUser["role"];
+  onNew: () => void;
+  onPassword: (user: Row) => void;
+  onUpdated: () => Promise<void>;
+}) {
+  const roleLabels: Record<string, string> = {
+    SUPER_ADMIN: "سوپر ادمین",
+    ADMIN: "مدیر سامانه",
+    OPERATOR: "کارشناس",
+    VIEWER: "مشاهده‌گر",
+  };
+  const isSuperAdmin = currentUserRole === "SUPER_ADMIN";
+  const isAdmin = currentUserRole === "ADMIN";
   const [editing, setEditing] = useState<Row | null>(null);
   return (
     <>
       <section className="panel page-panel">
-        <PanelHeader title="کاربران دارای دسترسی" subtitle="نقش هر کاربر، امکان مشاهده یا تغییر اطلاعات را مشخص می‌کند" action={<button className="secondary-button" onClick={onNew}>＋ افزودن کاربر</button>} />
+        <PanelHeader
+          title="کاربران دارای دسترسی"
+          subtitle={isSuperAdmin ? "سوپر ادمین مدیریت کامل حساب‌ها و رمزها را دارد. مدیر سامانه می‌تواند نقش کاربران عادی را مدیریت کند و هر کاربر فقط رمز خودش را تغییر می‌دهد." : isAdmin ? "مدیر سامانه می‌تواند نقش و وضعیت کاربران عادی را مدیریت کند؛ تغییر رمز دیگران فقط با سوپر ادمین است." : "هر کاربر فقط می‌تواند رمز عبور خودش را تغییر دهد."}
+          action={isSuperAdmin ? <button className="secondary-button" onClick={onNew}>＋ افزودن کاربر</button> : undefined}
+        />
         <div className="user-list">
-          {users.map((user) => (
-            <article className={Number(user.is_active) === 0 ? "inactive" : ""} key={String(user.id)}>
-              <Avatar name={String(user.full_name)} />
-              <div><strong>{String(user.full_name)}</strong><span>{String(user.email)}</span></div>
-              <div className="user-team"><small>تیم</small><strong>{String(user.team)}</strong></div>
-              <span className={cx("role-badge", String(user.role).toLowerCase())}>{roleLabels[String(user.role)] ?? String(user.role)}</span>
-              <span className="active-label"><i></i>{Number(user.is_active) === 0 ? "غیرفعال" : "فعال"}</span>
-              <button className="card-edit-button" onClick={() => setEditing(user)}>{Number(user.id) === currentUserId ? "حساب من" : "ویرایش"}</button>
-            </article>
-          ))}
+          {users.map((user) => {
+            const isSelf = Number(user.id) === currentUserId;
+            const isProtectedSuperAdmin = String(user.role) === "SUPER_ADMIN";
+            const canReset = isSelf || currentUserRole === "SUPER_ADMIN";
+            const canManageRole = isSuperAdmin || (isAdmin && !isSelf && !isProtectedSuperAdmin);
+            return (
+              <article className={Number(user.is_active) === 0 ? "inactive" : ""} key={String(user.id)}>
+                <Avatar name={String(user.full_name)} />
+                <div><strong>{String(user.full_name)}</strong><span dir="ltr">@{String(user.username || "—")}</span><span>{String(user.email)}</span></div>
+                <div className="user-team"><small>تیم</small><strong>{String(user.team)}</strong></div>
+                <span className={cx("role-badge", String(user.role).toLowerCase())}>{roleLabels[String(user.role)] ?? String(user.role)}</span>
+                <span className="active-label"><i></i>{Number(user.is_active) === 0 ? "غیرفعال" : "فعال"}</span>
+                <div className="user-row-actions">
+                  {canReset && <button className="card-edit-button" onClick={() => onPassword(user)}>{isSelf ? "تغییر رمز من" : "تغییر رمز"}</button>}
+                  {canManageRole && <button className="card-edit-button" onClick={() => setEditing(user)}>{isSuperAdmin ? (isSelf ? "ویرایش حساب" : "ویرایش") : "مدیریت نقش"}</button>}
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
-      {editing && <EditUserModal user={editing} isCurrentUser={Number(editing.id) === currentUserId} onClose={() => setEditing(null)} onUpdated={async () => { setEditing(null); await onUpdated(); }} />}
+      {editing && <EditUserModal user={editing} isCurrentUser={Number(editing.id) === currentUserId} actorRole={currentUserRole} onClose={() => setEditing(null)} onUpdated={async () => { setEditing(null); await onUpdated(); }} />}
     </>
   );
 }
@@ -2078,7 +2154,12 @@ function AuditPage({ logs }: { logs: Row[] }) {
     DELETE: "حذف",
     CANCEL: "لغو",
     PROVISION_ADMIN: "ایجاد مدیر اولیه",
+    PROMOTE_SUPER_ADMIN: "تعیین سوپر ادمین",
+    PASSWORD_CHANGED: "تغییر رمز عبور",
+    LOCAL_AUTH_BOOTSTRAP: "فعال‌سازی ورود محلی",
     PURGE_DEMO_USERS: "حذف حساب‌های آزمایشی",
+    LOCAL_AUTH_BOOTSTRAP: "فعال‌سازی ورود محلی",
+    PASSWORD_CHANGED: "تغییر رمز عبور",
   };
   const actors = [...new Set(logs.map((item) => String(item.actor)).filter(Boolean))];
   const shown = logs.filter((item) =>
@@ -2611,41 +2692,53 @@ function BugDrawer({
   );
 }
 
+type EmailImageMode = "ATTACH" | "INLINE" | "NONE";
+
 function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: string; canEdit: boolean }) {
-  const [templateKey, setTemplateKey] = useState("INCIDENT_ACTION");
-  const [recommendedTemplateKey, setRecommendedTemplateKey] = useState("INCIDENT_ACTION");
+  const [templateKey, setTemplateKey] = useState("TECHNICAL_INCIDENT");
+  const [recommendedTemplateKey, setRecommendedTemplateKey] = useState("TECHNICAL_INCIDENT");
   const [templates, setTemplates] = useState<Row[]>([]);
   const [history, setHistory] = useState<Row[]>([]);
   const [attachments, setAttachments] = useState<Row[]>([]);
-  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<number[]>([]);
-  const [maxInlineImageBytes, setMaxInlineImageBytes] = useState(18 * 1024 * 1024);
+  const [imageModes, setImageModes] = useState<Record<number, EmailImageMode>>({});
+  const [maxEmailImageBytes, setMaxEmailImageBytes] = useState(18 * 1024 * 1024);
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [insights, setInsights] = useState<{
+    intent: string;
+    intentLabel: string;
+    recommendationReason: string;
     status: string;
     priority: string;
-    incidentType: string;
+    errorCode: string;
     errorLabel: string;
     endpoints: string[];
-    observedCount: number | null;
+    components: string[];
+    origin: string;
     service: string;
     firstSeen: string;
     lastSeen: string;
     attachmentCount: number;
+    historyCount: number;
     latestFollowUp: { type: string; status: string; owner: string; result: string; scheduledAt: string } | null;
   }>({
+    intent: "TECHNICAL_INCIDENT",
+    intentLabel: "خطای فنی / سرویس",
+    recommendationReason: "",
     status: "نامشخص",
-    priority: "نامشخص",
-    incidentType: "اختلال سرویس",
-    errorLabel: "خطا",
+    priority: "",
+    errorCode: "",
+    errorLabel: "",
     endpoints: [],
-    observedCount: null,
+    components: [],
+    origin: "",
     service: "سرویس مربوطه",
-    firstSeen: "نامشخص",
-    lastSeen: "نامشخص",
+    firstSeen: "",
+    lastSeen: "",
     attachmentCount: 0,
+    historyCount: 0,
     latestFollowUp: null,
   });
   const [deliveryConfigured, setDeliveryConfigured] = useState(false);
@@ -2669,25 +2762,32 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
           templateKey: string;
           recommendedTemplateKey: string;
           context: {
+            intent: string;
+            intentLabel: string;
+            recommendationReason: string;
             status: string;
             priority: string;
-            incidentType: string;
+            errorCode: string;
             errorLabel: string;
             endpoints: string[];
-            observedCount: number | null;
+            components: string[];
+            origin: string;
             service: string;
             firstSeen: string;
             lastSeen: string;
             attachmentCount: number;
+            historyCount: number;
             latestFollowUp: { type: string; status: string; owner: string; result: string; scheduledAt: string } | null;
           };
         };
         attachments: Row[];
-        maxInlineImageBytes: number;
+        maxEmailImageBytes?: number;
+        maxInlineImageBytes?: number;
         templates: Row[];
         history: Row[];
         deliveryConfigured: boolean;
       }>(`/api/bugs/${bugId}/emails?template=${encodeURIComponent(key)}`);
+
       setTemplateKey(result.draft.templateKey);
       setRecommendedTemplateKey(result.draft.recommendedTemplateKey);
       setTo(result.draft.to);
@@ -2698,27 +2798,32 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
       setTemplates(result.templates);
       setHistory(result.history);
       setAttachments(result.attachments);
-      const inlineLimit = result.maxInlineImageBytes || 18 * 1024 * 1024;
-      setMaxInlineImageBytes(inlineLimit);
-      setSelectedAttachmentIds((current) => {
-        const available = result.attachments.map((item) => ({
-          id: Number(item.id),
-          size: Number(item.size_bytes ?? 0),
-        }));
-        const preferredIds = current.length
-          ? current.filter((id) => available.some((item) => item.id === id))
-          : available.map((item) => item.id);
+
+      const imageLimit = result.maxEmailImageBytes || result.maxInlineImageBytes || 18 * 1024 * 1024;
+      setMaxEmailImageBytes(imageLimit);
+      setImageModes((current) => {
+        const next: Record<number, EmailImageMode> = {};
         let total = 0;
-        return preferredIds.filter((id) => {
-          const size = available.find((item) => item.id === id)?.size ?? 0;
-          if (total + size > inlineLimit) return false;
-          total += size;
-          return true;
-        });
+        for (const item of result.attachments) {
+          const id = Number(item.id);
+          const size = Number(item.size_bytes ?? 0);
+          const preferred = current[id] ?? "ATTACH";
+          if (preferred === "NONE") {
+            next[id] = "NONE";
+            continue;
+          }
+          if (total + size <= imageLimit) {
+            next[id] = preferred;
+            total += size;
+          } else {
+            next[id] = "NONE";
+          }
+        }
+        return next;
       });
       setDeliveryConfigured(result.deliveryConfigured);
     } catch (requestError) {
-      setFormError(requestError instanceof Error ? requestError.message : "ساخت قالب ایمیل انجام نشد.");
+      setFormError(requestError instanceof Error ? requestError.message : "ساخت ایمیل انجام نشد.");
     } finally {
       setLoading(false);
     }
@@ -2729,29 +2834,35 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
     return () => window.clearTimeout(timer);
   }, [loadTemplate]);
 
-  const selectedAttachments = useMemo(
-    () => attachments.filter((item) => selectedAttachmentIds.includes(Number(item.id))),
-    [attachments, selectedAttachmentIds],
-  );
-  const selectedAttachmentBytes = selectedAttachments.reduce((sum, item) => sum + Number(item.size_bytes ?? 0), 0);
-  const selectedAttachmentMb = selectedAttachmentBytes / 1024 / 1024;
-  const maxInlineImageMb = maxInlineImageBytes / 1024 / 1024;
+  const imageSelections = useMemo(() => attachments
+    .map((item) => ({
+      id: Number(item.id),
+      mode: imageModes[Number(item.id)] ?? "ATTACH" as EmailImageMode,
+      size: Number(item.size_bytes ?? 0),
+      item,
+    }))
+    .filter((selection) => selection.mode !== "NONE"), [attachments, imageModes]);
 
-  const toggleAttachment = (attachmentId: number) => {
+  const selectedAttachmentIds = imageSelections.map((selection) => selection.id);
+  const selectedImageBytes = imageSelections.reduce((sum, selection) => sum + selection.size, 0);
+  const selectedImageMb = selectedImageBytes / 1024 / 1024;
+  const maxEmailImageMb = maxEmailImageBytes / 1024 / 1024;
+  const attachedImageCount = imageSelections.filter((selection) => selection.mode === "ATTACH").length;
+  const inlineImageCount = imageSelections.filter((selection) => selection.mode === "INLINE").length;
+
+  const changeImageMode = (attachmentId: number, mode: EmailImageMode) => {
     setMessage("");
     setFormError("");
-    setSelectedAttachmentIds((current) => {
-      if (current.includes(attachmentId)) return current.filter((id) => id !== attachmentId);
-      const next = [...current, attachmentId];
-      const nextBytes = attachments
-        .filter((item) => next.includes(Number(item.id)))
-        .reduce((sum, item) => sum + Number(item.size_bytes ?? 0), 0);
-      if (nextBytes > maxInlineImageBytes) {
-        setFormError(`حجم مجموع تصاویر ایمیل نباید بیشتر از ${maxInlineImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} مگابایت باشد.`);
-        return current;
-      }
-      return next;
-    });
+    const item = attachments.find((attachment) => Number(attachment.id) === attachmentId);
+    if (!item) return;
+    const currentMode = imageModes[attachmentId] ?? "ATTACH";
+    const currentBytes = currentMode === "NONE" ? 0 : Number(item.size_bytes ?? 0);
+    const nextBytes = mode === "NONE" ? 0 : Number(item.size_bytes ?? 0);
+    if (selectedImageBytes - currentBytes + nextBytes > maxEmailImageBytes) {
+      setFormError(`حجم مجموع تصاویر ایمیل نباید بیشتر از ${maxEmailImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} مگابایت باشد.`);
+      return;
+    }
+    setImageModes((current) => ({ ...current, [attachmentId]: mode }));
   };
 
   const persist = async (action: "DRAFT" | "QUEUE") => {
@@ -2761,7 +2872,16 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
     try {
       const result = await api<{ email: Row; message: string }>(`/api/bugs/${bugId}/emails`, {
         method: "POST",
-        body: JSON.stringify({ action, to, cc, subject, body, templateKey, attachmentIds: selectedAttachmentIds }),
+        body: JSON.stringify({
+          action,
+          to,
+          cc,
+          subject,
+          body,
+          templateKey,
+          attachmentIds: selectedAttachmentIds,
+          imageSelections: imageSelections.map((selection) => ({ id: selection.id, mode: selection.mode })),
+        }),
       });
       setHistory((current) => [result.email, ...current.filter((item) => Number(item.id) !== Number(result.email.id))]);
       setMessage(result.message);
@@ -2800,7 +2920,6 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
   const writeClipboard = async (value: string, successMessage: string) => {
     setMessage("");
     setFormError("");
-
     let copied = false;
     if (window.isSecureContext && navigator.clipboard?.writeText) {
       try {
@@ -2810,14 +2929,11 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
         copied = false;
       }
     }
-
     if (!copied) copied = fallbackCopyText(value);
-
     if (copied) {
       setMessage(successMessage);
       return;
     }
-
     setFormError("مرورگر اجازه دسترسی به Clipboard را نداد. متن را انتخاب کرده و Ctrl+C بزنید.");
   };
 
@@ -2825,7 +2941,7 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
   const copySubject = () => writeClipboard(subject, "موضوع ایمیل کپی شد.");
   const copyFullEmail = () => writeClipboard(
     `گیرنده: ${to || "—"}\nرونوشت: ${cc || "—"}\nموضوع: ${subject}\n\n${body}`,
-    "ایمیل کامل شامل گیرنده، موضوع و متن کپی شد.",
+    "ایمیل کامل کپی شد.",
   );
 
   const downloadEml = async () => {
@@ -2836,7 +2952,14 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
       const response = await fetch(`/api/bugs/${bugId}/emails/eml`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to, cc, subject, body, attachmentIds: selectedAttachmentIds }),
+        body: JSON.stringify({
+          to,
+          cc,
+          subject,
+          body,
+          attachmentIds: selectedAttachmentIds,
+          imageSelections: imageSelections.map((selection) => ({ id: selection.id, mode: selection.mode })),
+        }),
         cache: "no-store",
       });
       if (!response.ok) {
@@ -2852,9 +2975,13 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
       anchor.click();
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setMessage(selectedAttachmentIds.length
-        ? `${selectedAttachmentIds.length.toLocaleString("fa-IR")} تصویر داخل فایل EML قرار گرفت. فایل را با Outlook Classic باز کنید.`
-        : "فایل EML آماده شد؛ فایل دانلودشده را با Outlook Classic باز کنید.");
+      const parts = [
+        attachedImageCount ? `${attachedImageCount.toLocaleString("fa-IR")} پیوست` : "",
+        inlineImageCount ? `${inlineImageCount.toLocaleString("fa-IR")} تصویر داخل متن` : "",
+      ].filter(Boolean);
+      setMessage(parts.length
+        ? `فایل Outlook آماده شد (${parts.join(" + ")}).`
+        : "فایل Outlook آماده شد.");
     } catch (requestError) {
       setFormError(requestError instanceof Error ? requestError.message : "ساخت فایل EML انجام نشد.");
     } finally {
@@ -2872,8 +2999,8 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
       void downloadEml();
       return;
     }
-    if (selectedAttachmentIds.length) {
-      setMessage("در Outlook Web و برنامه پیش‌فرض مرورگر امکان درج خودکار تصویر وجود ندارد؛ برای ایمیل همراه تصویر، Outlook Classic (EML) را انتخاب کنید.");
+    if (imageSelections.length) {
+      setMessage("برای انتقال خودکار تصاویر به ایمیل، Outlook Classic را انتخاب کنید. Outlook Web و برنامه پیش‌فرض فقط متن را باز می‌کنند.");
     }
     if (mailApp === "outlook-web") {
       const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to.replace(/\s+/g, ""))}&cc=${encodeURIComponent(cc.replace(/\s+/g, ""))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -2885,111 +3012,94 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
   };
 
   const selectedTemplate = templates.find((item) => String(item.key) === templateKey);
-  const hasCauseRequest = /علت|RCA|ریشه‌ای/.test(body);
-  const hasActionRequest = /اقدام|اصلاحی|پیشگیرانه/.test(body);
+  const detectedFacts = [
+    insights.errorLabel,
+    insights.endpoints.length ? `${insights.endpoints.length.toLocaleString("fa-IR")} مسیر معتبر` : "",
+    insights.components.length ? `${insights.components.length.toLocaleString("fa-IR")} مؤلفه` : "",
+    insights.origin ? `سمت ${insights.origin}` : "",
+  ].filter(Boolean);
 
-  if (loading) return <div className="email-composer-loading">در حال آماده‌سازی قالب ایمیل…</div>;
+  if (loading) return <div className="email-composer-loading">در حال ساخت ایمیل هوشمند…</div>;
 
   return (
-    <section className="email-composer">
-      <div className="email-composer-intro">
-        <div><span>✉</span><div><strong>ایمیل رخداد {bugCode}</strong><p>قالب با توجه به وضعیت، اولویت، Endpointها، زمان مشاهده، آخرین پیگیری و تصاویر ثبت‌شده ساخته می‌شود.</p></div></div>
-        <span className={deliveryConfigured ? "connected" : "needs-config"}><i></i>{deliveryConfigured ? "ارسال خودکار متصل" : "ارسال خودکار تنظیم نشده"}</span>
-      </div>
-
-      <div className="email-insights">
-        <div className="email-insights-header">
-          <div><strong>جمع‌بندی هوشمند رخداد</strong><small>فقط از اطلاعات ثبت‌شده در Incident استفاده می‌شود؛ داده‌ای حدس زده نمی‌شود.</small></div>
-          {templateKey !== recommendedTemplateKey && <button className="secondary-button" onClick={() => void loadTemplate(recommendedTemplateKey)}>استفاده از قالب پیشنهادی</button>}
-        </div>
-        <div className="email-insight-chips">
-          <span><b>نوع</b>{insights.incidentType}</span>
-          <span><b>وضعیت</b>{insights.status}</span>
-          <span><b>اولویت</b>{insights.priority}</span>
-          <span><b>خطا</b>{insights.errorLabel}</span>
-          {insights.observedCount && <span><b>تعداد مشاهده</b>{insights.observedCount.toLocaleString("fa-IR")}</span>}
-          <span><b>تصاویر</b>{insights.attachmentCount.toLocaleString("fa-IR")}</span>
-          <span className={templateKey === recommendedTemplateKey ? "recommended" : ""}><b>قالب پیشنهادی</b>{String(templates.find((item) => String(item.key) === recommendedTemplateKey)?.name ?? "درخواست بررسی رسمی")}</span>
-        </div>
-        <div className="email-time-summary">
-          <span><b>اولین مشاهده</b>{insights.firstSeen}</span>
-          <span><b>آخرین مشاهده</b>{insights.lastSeen}</span>
-          {insights.latestFollowUp && <span><b>آخرین پیگیری</b>{insights.latestFollowUp.type} · {insights.latestFollowUp.status}{insights.latestFollowUp.owner ? ` · ${insights.latestFollowUp.owner}` : ""}</span>}
-        </div>
-        {insights.endpoints.length > 0 && (
-          <div className="detected-endpoints">
-            <strong>مسیرهای شناسایی‌شده</strong>
-            <div>{insights.endpoints.map((endpoint) => <code key={endpoint} dir="ltr">{endpoint}</code>)}</div>
+    <section className="email-composer smart-email-v12">
+      <div className="email-composer-intro smart-email-intro-v12">
+        <div>
+          <span>✉</span>
+          <div>
+            <strong>ساخت ایمیل {bugCode}</strong>
+            <p>متن کوتاه از اطلاعات واقعی رخداد ساخته می‌شود و قابل ویرایش است.</p>
           </div>
-        )}
+        </div>
+        <button type="button" className="secondary-button smart-email-rebuild" onClick={() => void loadTemplate("AUTO")}>✦ بازسازی هوشمند</button>
       </div>
 
-      <div className="template-toolbar">
-        <label>
-          <span>قالب پیام</span>
+      <div className="smart-email-toolbar-v12">
+        <label className="smart-email-type-control">
+          <span>نوع پیام</span>
           <select value={templateKey} onChange={(event) => void loadTemplate(event.target.value)}>
             {templates.map((item) => <option key={String(item.key)} value={String(item.key)}>{Boolean(item.recommended) ? "★ " : ""}{String(item.name)}</option>)}
           </select>
-          <small>{String(selectedTemplate?.description ?? "قالب موردنظر را انتخاب کنید.")}</small>
+          <small>{String(selectedTemplate?.description ?? "نوع پیام را انتخاب کنید.")}</small>
         </label>
-        <button className="secondary-button" onClick={() => void loadTemplate(templateKey)}>↻ بازسازی از اطلاعات خطا</button>
+        <div className="smart-email-detection-v12">
+          <span>تشخیص خودکار</span>
+          <strong>{String(templates.find((item) => String(item.key) === recommendedTemplateKey)?.name ?? insights.intentLabel)}</strong>
+          {insights.recommendationReason && <small>{insights.recommendationReason}</small>}
+          {detectedFacts.length > 0 && <div>{detectedFacts.map((fact) => <b key={fact}>{fact}</b>)}</div>}
+        </div>
       </div>
 
-      <div className="email-quality-grid">
-        <span className="ok">✓ شناسه رخداد در موضوع ایمیل</span>
-        <span className={insights.endpoints.length ? "ok" : "warn"}>{insights.endpoints.length ? "✓ مسیرهای درگیر شناسایی شدند" : "! مسیر درگیر در شرح ثبت نشده"}</span>
-        <span className={hasCauseRequest ? "ok" : "warn"}>{hasCauseRequest ? "✓ درخواست علت یا RCA وجود دارد" : "! درخواست علت در متن دیده نشد"}</span>
-        <span className={hasActionRequest ? "ok" : "warn"}>{hasActionRequest ? "✓ اقدام اصلاحی یا پیشگیرانه درخواست شده" : "! اقدام بعدی در متن مشخص نیست"}</span>
+      <div className="email-fields smart-email-fields-v12">
+        <label><span>گیرندگان *</span><input value={to} onChange={(event) => setTo(event.target.value)} placeholder="name@company.com" dir="ltr" /></label>
+        <label><span>رونوشت (CC)</span><input value={cc} onChange={(event) => setCc(event.target.value)} placeholder="manager@company.com" dir="ltr" /></label>
+        <label className="full"><span>موضوع *</span><input value={subject} onChange={(event) => setSubject(event.target.value)} /></label>
+        <label className="full"><span>متن ایمیل *</span><textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} /></label>
       </div>
 
       {attachments.length > 0 && (
-        <div className="email-attachment-picker">
-          <div className="email-attachment-picker-head">
-            <div><strong>تصاویر داخل ایمیل</strong><span>تصاویر منتخب در خروجی Outlook Classic به‌صورت Inline داخل خود ایمیل قرار می‌گیرند.</span></div>
-            <button type="button" className="text-button" onClick={() => {
-              if (selectedAttachmentIds.length === attachments.length) {
-                setSelectedAttachmentIds([]);
-              } else {
-                const total = attachments.reduce((sum, item) => sum + Number(item.size_bytes ?? 0), 0);
-                if (total > maxInlineImageBytes) {
-                  setFormError(`حجم همه تصاویر بیشتر از ${maxInlineImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} مگابایت است؛ تصاویر را جداگانه انتخاب کنید.`);
-                  return;
-                }
-                setSelectedAttachmentIds(attachments.map((item) => Number(item.id)));
-              }
-            }}>{selectedAttachmentIds.length === attachments.length ? "لغو انتخاب همه" : "انتخاب همه"}</button>
+        <div className="smart-email-images-v12">
+          <div className="smart-email-images-head-v12">
+            <div>
+              <strong>تصاویر رخداد</strong>
+              <span>پیش‌فرض تصاویر به‌صورت پیوست Outlook ارسال می‌شوند؛ در صورت نیاز هر تصویر را داخل متن قرار دهید.</span>
+            </div>
+            <div className="smart-email-image-summary-v12">
+              {attachedImageCount > 0 && <b>📎 {attachedImageCount.toLocaleString("fa-IR")} پیوست</b>}
+              {inlineImageCount > 0 && <b>▣ {inlineImageCount.toLocaleString("fa-IR")} داخل متن</b>}
+            </div>
           </div>
-          <div className="email-attachment-grid">
+          <div className="smart-email-image-grid-v12">
             {attachments.map((item) => {
               const id = Number(item.id);
-              const selected = selectedAttachmentIds.includes(id);
+              const mode = imageModes[id] ?? "ATTACH";
               return (
-                <label key={id} className={cx("email-attachment-card", selected && "selected")}>
-                  <input type="checkbox" checked={selected} onChange={() => toggleAttachment(id)} />
+                <article key={id} className={cx("smart-email-image-card-v12", mode === "NONE" && "disabled", mode === "INLINE" && "inline")}>
                   <img src={String(item.url || `/api/bug-attachments/${id}`)} alt={String(item.original_name)} />
-                  <span><strong>{String(item.original_name)}</strong><small>{(Number(item.size_bytes) / 1024 / 1024).toLocaleString("fa-IR", { maximumFractionDigits: 2 })} MB</small></span>
-                </label>
+                  <div>
+                    <strong title={String(item.original_name)}>{String(item.original_name)}</strong>
+                    <small>{(Number(item.size_bytes) / 1024 / 1024).toLocaleString("fa-IR", { maximumFractionDigits: 2 })} MB</small>
+                    <select value={mode} onChange={(event) => changeImageMode(id, event.target.value as EmailImageMode)} aria-label={`نحوه استفاده از ${String(item.original_name)}`}>
+                      <option value="ATTACH">پیوست فایل</option>
+                      <option value="INLINE">داخل متن ایمیل</option>
+                      <option value="NONE">استفاده نشود</option>
+                    </select>
+                  </div>
+                </article>
               );
             })}
           </div>
-          <div className={cx("email-attachment-summary", selectedAttachmentBytes > maxInlineImageBytes * 0.85 && "near-limit")}>
-            <span>{selectedAttachmentIds.length.toLocaleString("fa-IR")} تصویر انتخاب شده</span>
-            <strong>{selectedAttachmentMb.toLocaleString("fa-IR", { maximumFractionDigits: 2 })} / {maxInlineImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} MB</strong>
+          <div className={cx("email-attachment-summary", selectedImageBytes > maxEmailImageBytes * 0.85 && "near-limit")}>
+            <span>{imageSelections.length.toLocaleString("fa-IR")} تصویر انتخاب شده</span>
+            <strong>{selectedImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 2 })} / {maxEmailImageMb.toLocaleString("fa-IR", { maximumFractionDigits: 0 })} MB</strong>
           </div>
         </div>
       )}
 
-      <div className="email-fields">
-        <label><span>گیرندگان *</span><input value={to} onChange={(event) => setTo(event.target.value)} placeholder="name@company.com, team@company.com" dir="ltr" /></label>
-        <label><span>رونوشت (CC)</span><input value={cc} onChange={(event) => setCc(event.target.value)} placeholder="manager@company.com" dir="ltr" /></label>
-        <label className="full"><span>موضوع *</span><input value={subject} onChange={(event) => setSubject(event.target.value)} /></label>
-        <label className="full"><span>متن ایمیل *</span><textarea value={body} onChange={(event) => setBody(event.target.value)} rows={16} /></label>
-      </div>
-
       {message && <div className="email-message success">{message}</div>}
       {formError && <div className="email-message error">{formError}</div>}
 
-      <div className="email-actions email-actions-v2">
+      <div className="email-actions email-actions-v2 smart-email-actions-v12">
         <div className="email-copy-actions">
           <button className="cancel-button" type="button" onClick={() => void copyBody()}>کپی متن</button>
           <button className="cancel-button" type="button" onClick={() => void copySubject()}>کپی موضوع</button>
@@ -2997,17 +3107,17 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
         </div>
         <div className="mail-app-picker">
           <select value={mailApp} onChange={(event) => setMailApp(event.target.value as typeof mailApp)} aria-label="انتخاب برنامه ایمیل">
-            <option value="outlook-classic">Outlook Classic (EML + تصاویر)</option>
+            <option value="outlook-classic">Outlook Classic (EML + پیوست)</option>
             <option value="system">برنامه پیش‌فرض سیستم</option>
             <option value="outlook-web">Outlook Web</option>
           </select>
-          <button className="secondary-button" disabled={preparingEml} onClick={openMailClient}>{mailApp === "outlook-classic" ? (preparingEml ? "در حال آماده‌سازی…" : "ساخت ایمیل Outlook") : "باز کردن برنامه"}</button>
+          <button className="primary-button" disabled={preparingEml} onClick={openMailClient}>{mailApp === "outlook-classic" ? (preparingEml ? "در حال آماده‌سازی…" : "ساخت ایمیل Outlook") : "باز کردن برنامه"}</button>
         </div>
         {canEdit && <button className="secondary-button" disabled={Boolean(saving)} onClick={() => void persist("DRAFT")}>{saving === "DRAFT" ? "در حال ذخیره…" : "ذخیره پیش‌نویس"}</button>}
-        {canEdit && <button className="primary-button" disabled={Boolean(saving)} onClick={() => void persist("QUEUE")}>{saving === "QUEUE" ? "در حال ثبت…" : deliveryConfigured ? "ارسال ایمیل" : "ثبت در صف ارسال"}</button>}
+        {canEdit && <button className="secondary-button" disabled={Boolean(saving)} onClick={() => void persist("QUEUE")}>{saving === "QUEUE" ? "در حال ثبت…" : deliveryConfigured ? "ارسال ایمیل" : "ثبت در صف ارسال"}</button>}
       </div>
 
-      <div className="email-history">
+      <div className="email-history smart-email-history-v12">
         <h3>سابقه ایمیل‌های این خطا</h3>
         {history.length ? history.map((email) => (
           <article key={String(email.id)}>
@@ -3016,11 +3126,12 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
             <EmailStatus value={String(email.status)} />
             <small>{formatDate(email.created_at, true)}</small>
           </article>
-        )) : <p className="empty-email-history">هنوز پیش‌نویس یا ایمیلی برای این خطا ثبت نشده است.</p>}
+        )) : <p className="empty-email-history">هنوز ایمیلی برای این خطا ثبت نشده است.</p>}
       </div>
     </section>
   );
 }
+
 
 function EmailStatus({ value }: { value: string }) {
   const labels: Record<string, string> = {
@@ -3145,10 +3256,11 @@ function NewServiceModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
 function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
   return (
-    <ModalShell title="کاربر جدید" subtitle="ایمیل، تیم و سطح دسترسی کاربر را مشخص کنید." onClose={onClose}>
+    <ModalShell title="کاربر جدید" subtitle="ایمیل، رمز اولیه و نقش را مشخص کنید. نام کاربری را خود کاربر تنظیم می‌کند." onClose={onClose}>
       <SimpleCreateForm endpoint="/api/users" onCreated={onCreated} onClose={onClose} fields={[
         { name: "fullName", label: "نام و نام خانوادگی", required: true },
         { name: "email", label: "ایمیل", required: true, type: "email" },
+        { name: "password", label: "رمز عبور اولیه", required: true, type: "password", placeholder: "حداقل ۸ کاراکتر" },
         { name: "team", label: "تیم", required: true },
         { name: "role", label: "نقش", type: "select", options: [{ value: "OPERATOR", label: "کارشناس" }, { value: "ADMIN", label: "مدیر سامانه" }, { value: "VIEWER", label: "مشاهده‌گر" }] },
       ]} />
@@ -3196,19 +3308,24 @@ function EditServiceModal({ service, onClose, onUpdated }: { service: Row; onClo
   );
 }
 
-function EditUserModal({ user, isCurrentUser, onClose, onUpdated }: { user: Row; isCurrentUser: boolean; onClose: () => void; onUpdated: () => Promise<void> }) {
+function EditUserModal({ user, isCurrentUser, actorRole, onClose, onUpdated }: { user: Row; isCurrentUser: boolean; actorRole: CurrentUser["role"]; onClose: () => void; onUpdated: () => Promise<void> }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState("");
+  const isSuperAdminAccount = String(user.role) === "SUPER_ADMIN";
+  const roleOnly = actorRole === "ADMIN";
   return (
-    <ModalShell title="ویرایش کاربر" subtitle="نام کاربر در خطاها و پیگیری‌های مرتبط نیز به‌روز می‌شود." onClose={onClose}>
+    <ModalShell title={roleOnly ? "مدیریت نقش کاربر" : "ویرایش کاربر"} subtitle={isSuperAdminAccount ? "حساب سوپر ادمین فعال و محافظت‌شده باقی می‌ماند." : roleOnly ? "مدیر سامانه فقط نقش و وضعیت حساب را تغییر می‌دهد؛ رمز عبور و مشخصات هویتی دست‌نخورده می‌مانند." : "مشخصات حساب و نقش را مدیریت کنید؛ نام کاربری را خود کاربر از منوی حساب تنظیم می‌کند."} onClose={onClose}>
       <form className="modal-form" onSubmit={async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault(); setSaving(true); setFormError("");
         const values = new FormData(event.currentTarget);
         try {
           await api(`/api/users/${user.id}`, {
             method: "PATCH",
-            body: JSON.stringify({
+            body: JSON.stringify(roleOnly ? {
+              role: values.get("role"),
+              isActive: values.get("isActive") === "on",
+            } : {
               fullName: values.get("fullName"),
               email: values.get("email"),
               team: values.get("team"),
@@ -3218,17 +3335,24 @@ function EditUserModal({ user, isCurrentUser, onClose, onUpdated }: { user: Row;
           });
           await onUpdated();
         } catch (requestError) {
-          setFormError(requestError instanceof Error ? requestError.message : "ویرایش مسئول انجام نشد.");
+          setFormError(requestError instanceof Error ? requestError.message : "ویرایش کاربر انجام نشد.");
         } finally { setSaving(false); }
       }}>
-        <label><span>نام و نام خانوادگی *</span><input name="fullName" required defaultValue={String(user.full_name)} /></label>
-        <label><span>ایمیل *</span><input name="email" type="email" required defaultValue={String(user.email)} /></label>
-        <label><span>تیم *</span><input name="team" required defaultValue={String(user.team)} /></label>
-        <label><span>نقش</span><select name="role" defaultValue={String(user.role)}><option value="OPERATOR">کارشناس</option><option value="ADMIN">مدیر سامانه</option><option value="VIEWER">مشاهده‌گر</option></select></label>
-        <label className="switch-field full"><input name="isActive" type="checkbox" defaultChecked={Number(user.is_active) !== 0} /><span>این مسئول فعال باشد</span></label>
+        {roleOnly ? (
+          <div className="full form-hint"><b>{String(user.full_name)}</b> · <span dir="ltr">@{String(user.username || "—")}</span> · <span dir="ltr">{String(user.email)}</span></div>
+        ) : (
+          <>
+            <label><span>نام و نام خانوادگی *</span><input name="fullName" required defaultValue={String(user.full_name)} /></label>
+            <label><span>ایمیل *</span><input name="email" type="email" required defaultValue={String(user.email)} /></label>
+            <label><span>تیم *</span><input name="team" required defaultValue={String(user.team)} /></label>
+          </>
+        )}
+        <label><span>نقش</span><select name="role" defaultValue={String(user.role)} disabled={isSuperAdminAccount || isCurrentUser}><option value="ADMIN">مدیر سامانه</option><option value="OPERATOR">کارشناس</option><option value="VIEWER">مشاهده‌گر</option>{isSuperAdminAccount && <option value="SUPER_ADMIN">سوپر ادمین</option>}</select></label>
+        <label className="switch-field full"><input name="isActive" type="checkbox" defaultChecked={Number(user.is_active) !== 0} disabled={isSuperAdminAccount || isCurrentUser} /><span>این کاربر فعال باشد</span></label>
+        <div className="full form-hint">رمز عبور از بخش «تغییر رمز» مدیریت می‌شود. مدیر سامانه به رمز سایر کاربران دسترسی ندارد.</div>
         {formError && <p className="form-error">{formError}</p>}
         <footer className="split-footer">
-          <button type="button" className="danger-button" disabled={deleting || isCurrentUser} title={isCurrentUser ? "حسابی که با آن وارد شده‌اید قابل حذف نیست" : undefined} onClick={async () => {
+          {!roleOnly && <button type="button" className="danger-button" disabled={deleting || isCurrentUser || isSuperAdminAccount} title={isSuperAdminAccount ? "حساب سوپر ادمین قابل حذف نیست" : isCurrentUser ? "حسابی که با آن وارد شده‌اید قابل حذف نیست" : undefined} onClick={async () => {
             const confirmed = window.confirm(`حساب «${String(user.full_name)}» حذف شود؟ مسئولیت خطاهای جاری برداشته می‌شود، اما سابقه تغییرات باقی می‌ماند.`);
             if (!confirmed) return;
             setDeleting(true); setFormError("");
@@ -3236,15 +3360,104 @@ function EditUserModal({ user, isCurrentUser, onClose, onUpdated }: { user: Row;
               await api(`/api/users/${user.id}`, { method: "DELETE" });
               await onUpdated();
             } catch (requestError) {
-              setFormError(requestError instanceof Error ? requestError.message : "حذف مسئول انجام نشد.");
+              setFormError(requestError instanceof Error ? requestError.message : "حذف کاربر انجام نشد.");
             } finally {
               setDeleting(false);
             }
-          }}>{deleting ? "در حال حذف..." : isCurrentUser ? "حساب فعال" : "حذف حساب"}</button>
+          }}>{deleting ? "در حال حذف..." : isSuperAdminAccount ? "حساب محافظت‌شده" : isCurrentUser ? "حساب فعال" : "حذف حساب"}</button>}
           <span></span>
           <button type="button" className="cancel-button" onClick={onClose}>انصراف</button>
           <button className="primary-button" disabled={saving}>{saving ? "در حال ذخیره..." : "ذخیره تغییرات"}</button>
         </footer>
+      </form>
+    </ModalShell>
+  );
+}
+
+function UsernameModal({
+  currentUsername,
+  email,
+  onClose,
+  onChanged,
+}: {
+  currentUsername: string;
+  email: string;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  return (
+    <ModalShell title="نام کاربری من" subtitle="برای ورود سریع‌تر می‌توانید یک نام کاربری کوتاه انتخاب کنید." onClose={onClose}>
+      <form className="modal-form" onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const values = new FormData(event.currentTarget);
+        setSaving(true);
+        setFormError("");
+        try {
+          await api("/api/account/username", {
+            method: "PATCH",
+            body: JSON.stringify({ username: values.get("username") }),
+          });
+          await onChanged();
+        } catch (requestError) {
+          setFormError(requestError instanceof Error ? requestError.message : "تغییر نام کاربری انجام نشد.");
+        } finally {
+          setSaving(false);
+        }
+      }}>
+        <div className="full form-hint"><span dir="ltr">{email}</span></div>
+        <label className="full"><span>نام کاربری</span><input name="username" minLength={3} maxLength={32} pattern="[A-Za-z0-9._-]+" defaultValue={currentUsername} placeholder="username" dir="ltr" autoComplete="username" autoFocus /></label>
+        <div className="full form-hint">حروف انگلیسی، عدد، نقطه، خط تیره و زیرخط مجاز است. اگر فیلد را خالی ذخیره کنید، ورود فقط با ایمیل انجام می‌شود.</div>
+        {formError && <p className="form-error">{formError}</p>}
+        <footer><button type="button" className="cancel-button" onClick={onClose}>انصراف</button><button className="primary-button" disabled={saving}>{saving ? "در حال ذخیره..." : "ذخیره نام کاربری"}</button></footer>
+      </form>
+    </ModalShell>
+  );
+}
+
+function ChangePasswordModal({
+  user,
+  isCurrentUser,
+  actorRole,
+  onClose,
+  onChanged,
+}: {
+  user: Row;
+  isCurrentUser: boolean;
+  actorRole: CurrentUser["role"];
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const canReset = actorRole === "SUPER_ADMIN";
+  return (
+    <ModalShell title={isCurrentUser ? "تغییر رمز عبور من" : `تغییر رمز ${String(user.full_name)}`} subtitle={isCurrentUser ? "برای امنیت، ابتدا رمز فعلی خود را وارد کنید." : canReset ? "رمز جدید جایگزین رمز قبلی می‌شود." : "دسترسی تغییر رمز این حساب را ندارید."} onClose={onClose}>
+      <form className="modal-form" onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (!isCurrentUser && !canReset) return;
+        const values = new FormData(event.currentTarget);
+        const newPassword = String(values.get("newPassword") ?? "");
+        const confirmPassword = String(values.get("confirmPassword") ?? "");
+        if (newPassword !== confirmPassword) { setFormError("تکرار رمز عبور با رمز جدید یکسان نیست."); return; }
+        setSaving(true); setFormError("");
+        try {
+          await api(`/api/users/${user.id}/password`, {
+            method: "PATCH",
+            body: JSON.stringify({ currentPassword: values.get("currentPassword"), newPassword }),
+          });
+          await onChanged();
+        } catch (requestError) {
+          setFormError(requestError instanceof Error ? requestError.message : "تغییر رمز عبور انجام نشد.");
+        } finally { setSaving(false); }
+      }}>
+        <div className="full form-hint"><b dir="ltr">@{String(user.username || "user")}</b> · {String(user.email)}</div>
+        {isCurrentUser && <label className="full"><span>رمز عبور فعلی *</span><input name="currentPassword" type="password" required minLength={8} autoComplete="current-password" dir="ltr" /></label>}
+        <label className="full"><span>رمز عبور جدید *</span><input name="newPassword" type="password" required minLength={8} maxLength={200} autoComplete="new-password" dir="ltr" /></label>
+        <label className="full"><span>تکرار رمز عبور جدید *</span><input name="confirmPassword" type="password" required minLength={8} maxLength={200} autoComplete="new-password" dir="ltr" /></label>
+        {formError && <p className="form-error">{formError}</p>}
+        <footer><button type="button" className="cancel-button" onClick={onClose}>انصراف</button><button className="primary-button" disabled={saving || (!isCurrentUser && !canReset)}>{saving ? "در حال ذخیره..." : "تغییر رمز عبور"}</button></footer>
       </form>
     </ModalShell>
   );
