@@ -10417,3 +10417,44 @@ html[data-theme="dark"] .smart-email-detection-v12 {
     transition: none !important;
   }
 }
+
+
+/* ================================================================
+   v17 Stable Dark Release
+   - dark is the product baseline
+   - incident status is visible at row level, not per-column
+   - stronger dark-mode tint while keeping a calm unified surface
+   ================================================================ */
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-new {
+  --row-bg: color-mix(in srgb, var(--status-new-ui) 14%, #101b27 86%);
+  --row-bg-hover: color-mix(in srgb, var(--status-new-ui) 20%, #142334 80%);
+}
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-in_progress {
+  --row-bg: color-mix(in srgb, var(--status-progress-ui) 16%, #101b27 84%);
+  --row-bg-hover: color-mix(in srgb, var(--status-progress-ui) 23%, #142334 77%);
+}
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-waiting {
+  --row-bg: color-mix(in srgb, var(--status-waiting-ui) 15%, #101b27 85%);
+  --row-bg-hover: color-mix(in srgb, var(--status-waiting-ui) 22%, #142334 78%);
+}
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-reopened {
+  --row-bg: color-mix(in srgb, var(--status-reopened-ui) 19%, #101b27 81%);
+  --row-bg-hover: color-mix(in srgb, var(--status-reopened-ui) 27%, #142334 73%);
+}
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-resolved {
+  --row-bg: color-mix(in srgb, var(--status-resolved-ui) 13%, #101b27 87%);
+  --row-bg-hover: color-mix(in srgb, var(--status-resolved-ui) 19%, #142334 81%);
+}
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-closed {
+  --row-bg: color-mix(in srgb, var(--status-closed-ui) 8%, #101b27 92%);
+  --row-bg-hover: color-mix(in srgb, var(--status-closed-ui) 13%, #142334 87%);
+  opacity: .91;
+}
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-closed:hover { opacity: 1; }
+html[data-theme="dark"] .modern-record-table tbody .bug-row td:first-child {
+  box-shadow: inset -4px 0 0 color-mix(in srgb, var(--row-accent) 88%, transparent) !important;
+}
+html[data-theme="dark"] .modern-record-table tbody .bug-row.status-row-reopened td:first-child,
+html[data-theme="dark"] .modern-record-table tbody .bug-row.priority-row-p1 td:first-child {
+  box-shadow: inset -4px 0 0 var(--row-accent) !important;
+}

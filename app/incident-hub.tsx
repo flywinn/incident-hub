@@ -92,7 +92,7 @@ type AppPreferences = {
 };
 
 const defaultPreferences: AppPreferences = {
-  theme: "forest",
+  theme: "dark",
   fontSize: "large",
   autoRefresh: true,
   refreshSeconds: 30,
@@ -504,12 +504,21 @@ export default function IncidentHub({
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const saved = window.localStorage.getItem("elk-app-preferences-v3");
-      if (saved) {
+      const storageKey = "elk-app-preferences-v4";
+      const legacyKey = "elk-app-preferences-v3";
+      const saved = window.localStorage.getItem(storageKey);
+      const legacy = saved ? null : window.localStorage.getItem(legacyKey);
+      const raw = saved ?? legacy;
+      if (raw) {
         try {
-          setPreferences({ ...defaultPreferences, ...JSON.parse(saved) as Partial<AppPreferences> });
+          const parsed = JSON.parse(raw) as Partial<AppPreferences>;
+          // v1.13 intentionally moves existing installations to the dark baseline once.
+          // After migration, any explicit user theme choice is persisted in v4.
+          setPreferences({ ...defaultPreferences, ...parsed, theme: saved ? (parsed.theme ?? "dark") : "dark" });
+          if (legacy) window.localStorage.removeItem(legacyKey);
         } catch {
-          window.localStorage.removeItem("elk-app-preferences-v3");
+          window.localStorage.removeItem(storageKey);
+          window.localStorage.removeItem(legacyKey);
         }
       }
       setPreferencesReady(true);
@@ -519,7 +528,7 @@ export default function IncidentHub({
 
   useEffect(() => {
     if (!preferencesReady) return;
-    window.localStorage.setItem("elk-app-preferences-v3", JSON.stringify(preferences));
+    window.localStorage.setItem("elk-app-preferences-v4", JSON.stringify(preferences));
     document.documentElement.dataset.theme = preferences.theme;
     document.documentElement.dataset.fontSize = preferences.fontSize;
     document.documentElement.dataset.tableDensity = preferences.tableDensity;
