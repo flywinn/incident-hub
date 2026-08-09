@@ -42,9 +42,25 @@ npm run db:backup
 
 آخرین فایل backup را روی دیسک یا مقصد مستقل دیگری هم نگه دارید.
 
-## 4. تنظیم Super Admin و Secretهای Production
+## 4. همسان‌سازی کامل احراز هویت Dev با Production
 
-برای دسترسی مستقیم HTTP داخل LAN:
+اگر قرار است همان کاربران Dev با همان Username، Email، Role و Password در Production وارد شوند، از دستور زیر استفاده کنید:
+
+```powershell
+.\scripts\Configure-Production-Like-Dev.ps1
+```
+
+برای دسترسی HTTPS:
+
+```powershell
+.\scripts\Configure-Production-Like-Dev.ps1 -SecureCookie
+```
+
+این اسکریپت پیش از هر تغییر از دیتابیس و تصاویر Production Backup می‌گیرد. کاربران با Email تطبیق داده می‌شوند تا شناسه‌های موجود و ارتباط Incidentها حفظ شوند. حساب‌هایی که فقط در Dev هستند اضافه و حساب‌هایی که فقط در Production هستند غیرفعال می‌شوند. Password Hashها مستقیم منتقل می‌شوند، بنابراین Password متنی خوانده، نمایش یا ذخیره نمی‌شود. دیتابیس و Secret نشست Dev هرگز جایگزین Production نمی‌شوند.
+
+## 4.1 تنظیم مستقل Super Admin در Production
+
+اگر کاربران Production نباید از Dev همگام شوند و فقط می‌خواهید Local Auth را مستقل تنظیم کنید، برای دسترسی مستقیم HTTP داخل LAN اجرا کنید:
 
 ```powershell
 .\scripts\Configure-Production-Auth.ps1
