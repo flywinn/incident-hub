@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 
 function createDatabase(path) {
@@ -72,8 +73,8 @@ test("Dev authentication is mirrored without replacing Production incidents or u
   }
 
   try {
-    const script = new URL("../scripts/sync-dev-auth-to-production.mjs", import.meta.url);
-    const output = execFileSync(process.execPath, [script.pathname], {
+    const script = fileURLToPath(new URL("../scripts/sync-dev-auth-to-production.mjs", import.meta.url));
+    const output = execFileSync(process.execPath, [script], {
       env: { ...process.env, DEV_DB_PATH: devPath, PROD_DB_PATH: productionPath },
       encoding: "utf8",
     });
