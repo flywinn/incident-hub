@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import test from "node:test";
 
 test("numbered migrations upgrade an existing pre-auth database idempotently", () => {
-  const root = resolve(new URL("..", import.meta.url).pathname);
+  const root = fileURLToPath(new URL("..", import.meta.url));
   const temporary = mkdtempSync(join(tmpdir(), "incidenthub-migration-"));
   const dbPath = join(temporary, "incident-hub.sqlite");
   const initial = new Database(dbPath);
@@ -54,7 +55,7 @@ test("numbered migrations upgrade an existing pre-auth database idempotently", (
 });
 
 test("runtime schema and the local-auth migration stay aligned", () => {
-  const root = resolve(new URL("..", import.meta.url).pathname);
+  const root = fileURLToPath(new URL("..", import.meta.url));
   const runtimeSchema = readFileSync(join(root, "db/ensure.ts"), "utf8");
   const migration = readFileSync(join(root, "db/migrations/003_local_auth.sql"), "utf8");
   for (const marker of ["username TEXT", "user_credentials", "users_username_unique_idx"]) {
