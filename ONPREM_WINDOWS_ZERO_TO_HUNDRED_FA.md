@@ -1,5 +1,7 @@
 # راهنمای صفر تا صد استقرار ELK Incident Hub داخل دیتاسنتر روی Windows
 
+> این سند مسیر اختیاری `AUTH_MODE=PROXY` با IIS/Windows Authentication را توضیح می‌دهد. مسیر فعلی و ساده‌تر Production برای تیم کوچک، `AUTH_MODE=LOCAL` است و در [`QUICKSTART_LOCAL_AUTH_FA.md`](./QUICKSTART_LOCAL_AUTH_FA.md) مستند شده است.
+
 ## 1. نتیجه بررسی پروژه اولیه
 
 پروژه اولیه برای ChatGPT Sites و Cloudflare ساخته شده بود. دو وابستگی آن برای دیتاسنتر داخلی مناسب نبود:

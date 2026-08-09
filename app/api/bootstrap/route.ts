@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     const auth = await authorizeRequest(request, ["ADMIN", "OPERATOR", "VIEWER"]);
     if ("response" in auth) return auth.response;
     const d1 = await ensureDatabase();
-    const [bugs, services, users, assignees, followUps, events, emails, imports, auditLogs, settingsRow] = await Promise.all([
+    const [bugs, services, users, assignees, attachments, followUps, events, emails, imports, auditLogs, settingsRow] = await Promise.all([
       d1.prepare("SELECT * FROM bugs ORDER BY created_at DESC, id DESC").all(),
       d1.prepare("SELECT * FROM services ORDER BY is_active DESC, name COLLATE NOCASE").all(),
       d1.prepare("SELECT * FROM users ORDER BY is_active DESC, full_name COLLATE NOCASE").all(),
@@ -18,6 +18,7 @@ export async function GET(request: Request) {
         FROM bug_assignees ba
         JOIN users u ON u.id = ba.user_id
         ORDER BY ba.assigned_at, u.full_name COLLATE NOCASE`).all(),
+      d1.prepare("SELECT * FROM bug_attachments ORDER BY created_at, id").all(),
       d1.prepare("SELECT * FROM follow_ups ORDER BY CASE status WHEN 'SCHEDULED' THEN 1 ELSE 2 END, scheduled_at").all(),
       d1.prepare("SELECT * FROM bug_events ORDER BY created_at DESC LIMIT 120").all(),
       d1.prepare("SELECT * FROM email_queue ORDER BY created_at DESC LIMIT 40").all(),
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
       services: services.results,
       users: users.results,
       assignees: assignees.results,
+      attachments: attachments.results,
       followUps: followUps.results,
       events: events.results,
       emails: emails.results,

@@ -17,3 +17,6 @@ dist/
 *.key
 *.pfx
 *.p12
+*.bak
+*.tmp
+*.old

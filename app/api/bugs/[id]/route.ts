@@ -1,6 +1,7 @@
 import { ensureDatabase } from "../../../../db/ensure";
 import { apiError, cleanText, isOneOf } from "../../../../lib/api";
 import { authorizeRequest } from "../../../../lib/auth";
+import { deleteIncidentImageDirectory } from "../../../../lib/incident-images";
 
 const statuses = ["NEW", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED", "REOPENED"] as const;
 const priorities = ["P1", "P2", "P3", "P4"] as const;
@@ -220,6 +221,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     }
 
     await d1.batch([
+      d1.prepare("DELETE FROM bug_attachments WHERE bug_id = ?").bind(bugId),
       d1.prepare("DELETE FROM email_queue WHERE bug_id = ?").bind(bugId),
       d1.prepare("DELETE FROM comments WHERE bug_id = ?").bind(bugId),
       d1.prepare("DELETE FROM follow_ups WHERE bug_id = ?").bind(bugId),
@@ -231,6 +233,12 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
       ) VALUES ('BUG', ?, 'DELETE', ?, ?, ?)`)
         .bind(bugCode, auth.user.fullName, JSON.stringify(bug), JSON.stringify({ deleted: true })),
     ]);
+
+    try {
+      await deleteIncidentImageDirectory(bugId);
+    } catch (cleanupError) {
+      console.error("incident_image_directory_cleanup_failed", { bugId, cleanupError });
+    }
 
     return Response.json({ deleted: true, bugCode });
   } catch (error) {
