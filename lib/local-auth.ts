@@ -17,8 +17,6 @@ const MIN_PASSWORD_LENGTH = 8;
 const MIN_USERNAME_LENGTH = 3;
 const MAX_USERNAME_LENGTH = 32;
 
-let localAuthReadyPromise: Promise<void> | null = null;
-
 function sessionSecret() {
   const secret = process.env.AUTH_SESSION_SECRET?.trim() ?? "";
   if (secret.length < 32) {
@@ -70,31 +68,7 @@ export function validateLocalUsername(value: unknown) {
 }
 
 export async function ensureLocalAuthReady() {
-  if (localAuthReadyPromise) return localAuthReadyPromise;
-  localAuthReadyPromise = (async () => {
-    const d1 = await ensureDatabase();
-    await d1.prepare(`CREATE TABLE IF NOT EXISTS user_credentials (
-      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      password_hash TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`).run();
-
-    const columns = (await d1.prepare("PRAGMA table_info(users)").all<Record<string, unknown>>()).results;
-    if (!columns.some((column) => String(column.name) === "username")) {
-      await d1.prepare("ALTER TABLE users ADD COLUMN username TEXT").run();
-    }
-    await d1.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique_idx
-      ON users(username COLLATE NOCASE)
-      WHERE username IS NOT NULL AND username <> ''`).run();
-
-  })();
-
-  try {
-    await localAuthReadyPromise;
-  } catch (error) {
-    localAuthReadyPromise = null;
-    throw error;
-  }
+  await ensureDatabase();
 }
 
 export async function hashLocalPassword(password: string) {
@@ -154,19 +128,37 @@ export async function tryBootstrapPassword(user: { id: number; email: string; ro
 type SessionPayload = {
   uid: number;
   exp: number;
+  cv: string;
 };
 
-export function createLocalSessionToken(userId: number) {
+function credentialVersion(passwordHash: string) {
+  return createHmac("sha256", sessionSecret())
+    .update(`credential:${passwordHash}`)
+    .digest("base64url")
+    .slice(0, 24);
+}
+
+export async function localSessionVersionForUser(userId: number) {
+  const passwordHash = await getUserPasswordHash(userId);
+  if (!passwordHash) throw new Error("برای این کاربر رمز عبور محلی ثبت نشده است.");
+  return credentialVersion(passwordHash);
+}
+
+export function createLocalSessionToken(userId: number, currentCredentialVersion: string) {
+  if (!/^[A-Za-z0-9_-]{24}$/.test(currentCredentialVersion)) {
+    throw new Error("نسخه اعتبارنامه نشست معتبر نیست.");
+  }
   const payload: SessionPayload = {
     uid: userId,
     exp: Math.floor(Date.now() / 1000) + sessionHours() * 3600,
+    cv: currentCredentialVersion,
   };
   const encodedPayload = base64url(JSON.stringify(payload));
   const signature = createHmac("sha256", sessionSecret()).update(encodedPayload).digest("base64url");
   return `${encodedPayload}.${signature}`;
 }
 
-export function localSessionUserId(cookieHeader: string | null | undefined) {
+export function localSessionIdentity(cookieHeader: string | null | undefined) {
   if (!cookieHeader) return null;
   const cookie = cookieHeader
     .split(";")
@@ -184,10 +176,20 @@ export function localSessionUserId(cookieHeader: string | null | undefined) {
     const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as SessionPayload;
     if (!Number.isInteger(payload.uid) || payload.uid <= 0) return null;
     if (!Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)) return null;
-    return payload.uid;
+    if (!/^[A-Za-z0-9_-]{24}$/.test(payload.cv)) return null;
+    return { userId: payload.uid, credentialVersion: payload.cv };
   } catch {
     return null;
   }
+}
+
+export function localSessionUserId(cookieHeader: string | null | undefined) {
+  return localSessionIdentity(cookieHeader)?.userId ?? null;
+}
+
+export async function localSessionCredentialIsCurrent(userId: number, candidateVersion: string) {
+  const currentVersion = await localSessionVersionForUser(userId).catch(() => "");
+  return Boolean(currentVersion) && safeEqualText(candidateVersion, currentVersion);
 }
 
 function cookieSecure(requestUrl?: string) {

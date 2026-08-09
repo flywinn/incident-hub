@@ -19,10 +19,10 @@ async function loadEngine() {
   });
   const errors = (output.diagnostics ?? []).filter((item) => item.category === ts.DiagnosticCategory.Error);
   assert.equal(errors.length, 0, errors.map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n")).join("\n"));
-  const module = { exports: {} };
-  const context = vm.createContext({ module, exports: module.exports, Intl, Date, console });
+  const commonJsModule = { exports: {} };
+  const context = vm.createContext({ module: commonJsModule, exports: commonJsModule.exports, Intl, Date, console });
   new vm.Script(output.outputText).runInContext(context);
-  return module.exports;
+  return commonJsModule.exports;
 }
 
 test("technical incidents stay short and preserve useful endpoint/component/origin", async () => {

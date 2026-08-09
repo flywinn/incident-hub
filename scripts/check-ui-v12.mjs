@@ -10,10 +10,10 @@ const [ui, css] = await Promise.all([
   read("app/globals.css"),
 ]);
 
-assert.match(ui, /Lucid Incident v1\.7/);
-assert.match(ui, /\| "person";/);
+assert.match(ui, /IncidentHub UI v1\.11\.3/);
+assert.match(ui, /\| "person"/);
 assert.match(ui, /person: <><circle/);
-assert.match(ui, /currentUser\.role === "ADMIN" \? "admin" : "person"/);
+assert.match(ui, /\["SUPER_ADMIN", "ADMIN"\]\.includes\(currentUser\.role\) \? "admin" : "person"/);
 assert.match(ui, /task-owner-badge/);
 assert.match(ui, /به‌روزرسانی خودکار/);
 assert.match(ui, /className=\{cx\("priority-cell", `priority-\$\{String\(bug\.priority\)\.toLowerCase\(\)\}`\)\}/);

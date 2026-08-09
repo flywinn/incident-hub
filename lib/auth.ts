@@ -3,7 +3,8 @@ import { identityFromHeaders, ownerEmailSet } from "./identity";
 import {
   ensureLocalAuthReady,
   getUserPasswordHash,
-  localSessionUserId,
+  localSessionCredentialIsCurrent,
+  localSessionIdentity,
   normalizeLocalUsername,
   setUserPassword,
   tryBootstrapPassword,
@@ -28,6 +29,7 @@ type Identity = {
 };
 
 const roleSet = new Set<AppRole>(["SUPER_ADMIN", "ADMIN", "OPERATOR", "VIEWER"]);
+const dummyPasswordHash = `scrypt-v1$${Buffer.alloc(16).toString("base64url")}$${Buffer.alloc(64).toString("base64url")}`;
 let superAdminReadyPromise: Promise<void> | null = null;
 
 export function authenticationMode() {
@@ -134,11 +136,12 @@ export async function getNoAuthAdmin(): Promise<AppUser> {
 
 export async function getLocalSessionUser(cookieHeader: string | null | undefined): Promise<AppUser | null> {
   await ensureLocalSuperAdmin();
-  const userId = localSessionUserId(cookieHeader);
-  if (!userId) return null;
+  const session = localSessionIdentity(cookieHeader);
+  if (!session) return null;
+  if (!await localSessionCredentialIsCurrent(session.userId, session.credentialVersion)) return null;
   const d1 = await ensureDatabase();
   const row = await d1.prepare("SELECT * FROM users WHERE id = ? AND is_active = 1 LIMIT 1")
-    .bind(userId).first<Record<string, unknown>>();
+    .bind(session.userId).first<Record<string, unknown>>();
   return row ? toAppUser(row) : null;
 }
 
@@ -154,7 +157,10 @@ export async function authenticateLocalCredentials(identifierValue: string, pass
     LIMIT 1`)
     .bind(rawIdentifier, identifier || rawIdentifier)
     .first<Record<string, unknown>>();
-  if (!row) return null;
+  if (!row) {
+    await verifyLocalPassword(password, dummyPasswordHash);
+    return null;
+  }
 
   const user = toAppUser(row);
   let encoded = await getUserPasswordHash(user.id);

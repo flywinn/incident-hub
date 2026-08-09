@@ -2,14 +2,14 @@ import { readFile } from "node:fs/promises";
 import ts from "typescript";
 
 const files = [
-  ["app/incident-hub.tsx", ts.ScriptKind.TSX],
-  ["app/api/bugs/[id]/emails/route.ts", ts.ScriptKind.TS],
-  ["app/api/bugs/[id]/emails/eml/route.ts", ts.ScriptKind.TS],
-  ["lib/email-intelligence.ts", ts.ScriptKind.TS],
+  "app/incident-hub.tsx",
+  "app/api/bugs/[id]/emails/route.ts",
+  "app/api/bugs/[id]/emails/eml/route.ts",
+  "lib/email-intelligence.ts",
 ];
 
 let failed = false;
-for (const [path, scriptKind] of files) {
+for (const path of files) {
   const source = await readFile(new URL(`../${path}`, import.meta.url), "utf8");
   const result = ts.transpileModule(source, {
     compilerOptions: {

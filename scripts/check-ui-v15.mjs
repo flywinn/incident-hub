@@ -9,10 +9,10 @@ const [ui, css] = await Promise.all([
   read("app/globals.css"),
 ]);
 
-assert.match(ui, /IncidentHub UI v1\.9 · Unified Surface/);
+assert.match(ui, /IncidentHub UI v1\.11\.3/);
 assert.match(ui, /onQuickUpdate=\{quickUpdateBug\}/);
 assert.match(ui, /onQuickUpdate: \(id: number, payload: Record<string, unknown>\) => Promise<void>/);
-assert.match(ui, /compact onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\}/);
+assert.match(ui, /compact adaptiveColumns=\{adaptiveTables\} onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\}/);
 assert.match(ui, /فیلتر و پایش خطاها/);
 assert.match(ui, /unified-records/);
 assert.match(ui, /bug-observation-summary[\s\S]*sourceLabels/);

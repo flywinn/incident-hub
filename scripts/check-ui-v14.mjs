@@ -6,7 +6,7 @@ const root = resolve(process.cwd());
 const read = (path) => readFile(resolve(root, path), "utf8");
 const [ui, css] = await Promise.all([read("app/incident-hub.tsx"), read("app/globals.css")]);
 
-assert.match(ui, /FocusBoard v1\.8/);
+assert.match(ui, /IncidentHub UI v1\.11\.3/);
 assert.match(ui, /\| "filter";/);
 assert.match(ui, /filter: <><path/);
 assert.match(ui, /filtersExpanded/);

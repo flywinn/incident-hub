@@ -11,6 +11,11 @@ function Check([string]$Name,[bool]$Ok,[string]$Detail) {
     Write-Host ($prefix + " " + $Name + " - " + $Detail) -ForegroundColor $color
     if(-not $Ok){$script:failed=$true}
 }
+function Get-EnvValue([string]$Path,[string]$Key) {
+    $line = Get-Content -LiteralPath $Path | Where-Object { $_ -match ('^\s*'+[regex]::Escape($Key)+'\s*=') } | Select-Object -Last 1
+    if (-not $line) { return "" }
+    return (($line -split '=',2)[1]).Trim().Trim('"').Trim("'")
+}
 $current = Join-Path $Root "Prod\current"
 $config = Join-Path $Root "Config\Prod\.env.production"
 Check "Current release" (Test-Path $current) $current
@@ -21,7 +26,9 @@ $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Sil
 if ($listener) { $listenerDetail = "PID $($listener.OwningProcess)" } else { $listenerDetail = "port $Port not listening" }
 Check "TCP listener" ([bool]$listener) $listenerDetail
 try {
-    $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 10
+    $healthSecret = Get-EnvValue $config "HEALTH_DETAILS_SECRET"
+    if ([string]::IsNullOrWhiteSpace($healthSecret)) { throw "HEALTH_DETAILS_SECRET is missing from Production config." }
+    $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -Headers @{ Authorization = "Bearer $healthSecret" } -TimeoutSec 10
     Check "Health endpoint" ($health.status -eq "ok") ("status="+$health.status+" version="+$health.version)
 } catch { Check "Health endpoint" $false $_.Exception.Message }
 if ($failed) { exit 1 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 function report(error: Error & { digest?: string }) {
   void fetch("/api/client-errors", {
@@ -22,6 +23,8 @@ export default function ErrorPage({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     console.error(error);
     report(error);
@@ -37,7 +40,7 @@ export default function ErrorPage({
         {error.digest ? <code>{error.digest}</code> : null}
         <div>
           <button onClick={reset}>تلاش دوباره</button>
-          <button className="secondary" onClick={() => window.location.assign("/")}>بازگشت به داشبورد</button>
+          <button className="secondary" onClick={() => router.push("/")}>بازگشت به داشبورد</button>
         </div>
       </section>
     </main>

@@ -6,8 +6,8 @@ const root = resolve(process.cwd());
 const read = (path) => readFile(resolve(root, path), "utf8");
 const [ui, css] = await Promise.all([read("app/incident-hub.tsx"), read("app/globals.css")]);
 
-assert.match(ui, /FocusBoard v1\.8\.1/);
-assert.match(ui, /<BugTable bugs=\{recentBugs\} assignees=\{data\.assignees\} onSelect=\{onSelectBug\} compact onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\} \/>/);
+assert.match(ui, /IncidentHub UI v1\.11\.3/);
+assert.match(ui, /<BugTable bugs=\{recentBugs\} assignees=\{data\.assignees\} onSelect=\{onSelectBug\} compact adaptiveColumns=\{adaptiveTables\} onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\} \/>/);
 assert.match(css, /v14\.1 Seamless row unification/);
 assert.match(css, /border-spacing: 0 10px !important/);
 assert.match(css, /--row-surface:/);

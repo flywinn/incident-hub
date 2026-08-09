@@ -31,16 +31,19 @@ test("does not seed bundled operational data by default", async () => {
 });
 
 test("provides health, backup and Windows deployment helpers", async () => {
-  const [health, backup, task, iis, start] = await Promise.all([
+  const [health, backup, task, stableInstaller, iis, start] = await Promise.all([
     read("../app/api/health/route.ts"),
     read("../scripts/backup-db.mjs"),
     read("../scripts/install-windows-task.ps1"),
+    read("../scripts/Install-Stable-Production.ps1"),
     read("../deploy/iis/web.config.template"),
     read("../scripts/start-server.mjs"),
   ]);
   assert.match(health, /SELECT 1 AS ok/);
   assert.match(backup, /\.backup\(/);
   assert.match(task, /New-ScheduledTaskTrigger -AtStartup/);
+  assert.match(stableInstaller, /\$processId = \[int\]\$c\.OwningProcess/);
+  assert.doesNotMatch(stableInstaller, /\$pid\b/i);
   assert.match(iis, /HTTP_X_AUTHENTICATED_USER/);
   assert.match(iis, /127\.0\.0\.1:3000/);
   assert.match(start, /\.env\.production/);
@@ -59,7 +62,7 @@ test("supports incident screenshots in email and keeps upload limits", async () 
   assert.match(images, /MAX_EMAIL_INLINE_IMAGE_BYTES/);
   assert.match(attachments, /saveIncidentImage/);
   assert.match(attachments, /d1\.batch\(savedFiles\.map/);
-  assert.match(emailUi, /email-attachment-picker/);
+  assert.match(emailUi, /smart-email-images-v12/);
   assert.match(emailUi, /کپی کامل/);
   assert.match(eml, /multipart\/related/);
   assert.match(eml, /Content-ID:/);
@@ -173,9 +176,9 @@ test("uses Lucid Incident refinement with clearer dark-state semantics and simpl
     read("../app/incident-hub.tsx"),
     read("../app/globals.css"),
   ]);
-  assert.match(ui, /IncidentHub UI v1\.9|Lucid Incident v1\.7/);
+  assert.match(ui, /IncidentHub UI v1\.11\.3/);
   assert.match(ui, /task-owner-badge/);
-  assert.match(ui, /currentUser\.role === "ADMIN" \? "admin" : "person"/);
+  assert.match(ui, /\["SUPER_ADMIN", "ADMIN"\]\.includes\(currentUser\.role\) \? "admin" : "person"/);
   assert.match(ui, /به‌روزرسانی خودکار/);
   assert.match(css, /v12 Lucid Incident polish/);
   assert.match(css, /task-owner-badge/);
@@ -200,7 +203,7 @@ test("uses FocusBoard dashboard and incident-list refinement", async () => {
     read("../app/incident-hub.tsx"),
     read("../app/globals.css"),
   ]);
-  assert.match(ui, /IncidentHub UI v1\.9|FocusBoard v1\.8/);
+  assert.match(ui, /IncidentHub UI v1\.11\.3/);
   assert.match(ui, /filtersExpanded/);
   assert.match(ui, /incident-filter-toolbar/);
   assert.match(ui, /modern-record-table/);
@@ -218,8 +221,8 @@ test("uses SeamlessRows refinement for unified incident rows and dashboard inlin
     read("../app/incident-hub.tsx"),
     read("../app/globals.css"),
   ]);
-  assert.match(ui, /IncidentHub UI v1\.9|FocusBoard v1\.8\.1/);
-  assert.match(ui, /compact onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\}/);
+  assert.match(ui, /IncidentHub UI v1\.11\.3/);
+  assert.match(ui, /compact adaptiveColumns=\{adaptiveTables\} onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\}/);
   assert.match(css, /v14\.1 Seamless row unification/);
   assert.match(css, /--row-surface:/);
   assert.match(css, /border-spacing: 0 10px !important/);
@@ -227,16 +230,16 @@ test("uses SeamlessRows refinement for unified incident rows and dashboard inlin
 });
 
 
-test("uses v1.9 Unified Surface for flat incident rows and simplified columns", async () => {
+test("uses Unified Surface for flat incident rows and simplified columns", async () => {
   const [ui, css] = await Promise.all([
     read("../app/incident-hub.tsx"),
     read("../app/globals.css"),
   ]);
-  assert.match(ui, /IncidentHub UI v1\.9 · Unified Surface/);
+  assert.match(ui, /IncidentHub UI v1\.11\.3/);
   assert.match(ui, /فیلتر و پایش خطاها/);
   assert.match(ui, /unified-records/);
   assert.match(ui, /unified-dashboard-incidents/);
-  assert.match(ui, /compact onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\}/);
+  assert.match(ui, /compact adaptiveColumns=\{adaptiveTables\} onQuickUpdate=\{canEdit \? onQuickUpdate : undefined\}/);
   assert.doesNotMatch(ui, /adaptiveColumns && <th>منبع/);
   assert.doesNotMatch(ui, /adaptiveColumns && <th>دفعات مشاهده/);
   assert.doesNotMatch(ui, /adaptiveColumns && <th>آخرین مشاهده/);

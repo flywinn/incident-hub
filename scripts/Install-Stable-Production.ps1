@@ -28,6 +28,11 @@ function Run-Native([string]$File,[string[]]$Args,[string]$WorkingDirectory) {
         if ($LASTEXITCODE -ne 0) { throw "$File failed with exit code $LASTEXITCODE" }
     } finally { Pop-Location }
 }
+function Get-EnvValue([string]$Path,[string]$Key) {
+    $line = Get-Content -LiteralPath $Path | Where-Object { $_ -match ('^\s*'+[regex]::Escape($Key)+'\s*=') } | Select-Object -Last 1
+    if (-not $line) { return "" }
+    return (($line -split '=',2)[1]).Trim().Trim('"').Trim("'")
+}
 function Remove-JunctionOrDirectory([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
     $item = Get-Item -LiteralPath $Path -Force
@@ -53,12 +58,12 @@ function Set-Junction([string]$Path,[string]$Target) {
 function Stop-Port([int]$ListenPort) {
     $connections = @(Get-NetTCPConnection -LocalPort $ListenPort -State Listen -ErrorAction SilentlyContinue)
     foreach ($c in $connections) {
-        $pid = [int]$c.OwningProcess
-        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
+        $processId = [int]$c.OwningProcess
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
         if ($proc -and $proc.Name -notmatch '^node(\.exe)?$') {
-            throw "Port $ListenPort is owned by non-Node process PID $pid ($($proc.Name)). Refusing to stop it."
+            throw "Port $ListenPort is owned by non-Node process PID $processId ($($proc.Name)). Refusing to stop it."
         }
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
     }
 }
 function Wait-PortFree([int]$ListenPort,[int]$Seconds=30) {
@@ -68,11 +73,12 @@ function Wait-PortFree([int]$ListenPort,[int]$Seconds=30) {
     }
     return $false
 }
-function Wait-Health([int]$ListenPort,[int]$Seconds=120) {
+function Wait-Health([int]$ListenPort,[string]$Secret,[int]$Seconds=120) {
     $last = ""
+    $headers = @{ Authorization = "Bearer $Secret" }
     for($i=0;$i -lt $Seconds;$i++){
         try {
-            $h = Invoke-RestMethod -Uri "http://127.0.0.1:$ListenPort/api/health" -TimeoutSec 4
+            $h = Invoke-RestMethod -Uri "http://127.0.0.1:$ListenPort/api/health" -Headers $headers -TimeoutSec 4
             if($h.status -eq "ok"){ return $h }
             $last = "status=$($h.status)"
         } catch { $last = $_.Exception.Message }
@@ -97,6 +103,10 @@ function Register-Tasks([string]$ToolsPath,[string]$NodeExe) {
 
 Require-Admin
 $nodeExe = (Get-Command node.exe -ErrorAction Stop).Source
+$sourcePackagePath = Join-Path $SourcePath "package.json"
+if (-not (Test-Path -LiteralPath $sourcePackagePath)) { throw "Source project not found: $SourcePath" }
+$releaseVersion = [string]((Get-Content -LiteralPath $sourcePackagePath -Raw | ConvertFrom-Json).version)
+if ($releaseVersion -notmatch '^\d+\.\d+\.\d+([-.][A-Za-z0-9.-]+)?$') { throw "Invalid package version: $releaseVersion" }
 
 $configPath = Join-Path $Root "Config\Prod\.env.production"
 $prodDb = Join-Path $Root "Data\Prod\incident-hub.sqlite"
@@ -109,7 +119,7 @@ $toolsPath = Join-Path $Root "Tools"
 $backupRoot = Join-Path $Root "Backups\StableDeploy"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $buildPath = Join-Path $buildRoot $stamp
-$releasePath = Join-Path $releasesRoot ("v1.13.0-stable-dark-" + $stamp)
+$releasePath = Join-Path $releasesRoot ("v" + $releaseVersion + "-" + $stamp)
 $deployBackup = Join-Path $backupRoot $stamp
 $oldTaskXml = Join-Path $deployBackup "old-task.xml"
 $oldCurrentTarget = Get-JunctionTarget $currentPath
@@ -118,10 +128,11 @@ $cutover = $false
 
 New-Item -ItemType Directory -Force $buildPath,$releasesRoot,$toolsPath,$deployBackup,$prodImages | Out-Null
 
-if (-not (Test-Path -LiteralPath (Join-Path $SourcePath "package.json"))) { throw "Source project not found: $SourcePath" }
 if (-not (Test-Path -LiteralPath (Join-Path $SourcePath "node_modules"))) { throw "Source node_modules is missing. Run npm install in $SourcePath first." }
 if (-not (Test-Path -LiteralPath $configPath)) { throw "Production config is missing. Run Configure-Production-Auth.ps1 first: $configPath" }
 if (-not (Test-Path -LiteralPath $prodDb)) { throw "Production database is missing: $prodDb" }
+$healthSecret = Get-EnvValue $configPath "HEALTH_DETAILS_SECRET"
+if ([string]::IsNullOrWhiteSpace($healthSecret)) { throw "HEALTH_DETAILS_SECRET is missing from Production config. Re-run Configure-Production-Auth.ps1." }
 
 Write-Host "==> 1/8 Copying source into isolated build workspace" -ForegroundColor Cyan
 $rcArgs = @($SourcePath,$buildPath,"/E","/R:1","/W:1","/NFL","/NDL","/NJH","/NJS","/NP","/XD",".next","node_modules",".git","data","backups","logs","Patches","/XF",".env*","*.sqlite","*.sqlite-*","*.db")
@@ -152,7 +163,7 @@ try {
     & robocopy.exe @releaseCopy | Out-Null
     if($LASTEXITCODE -gt 7){throw "Failed to copy standalone runtime; robocopy code $LASTEXITCODE"}
     Copy-Item -LiteralPath (Join-Path $SourcePath "scripts\stable-backup-db.mjs") -Destination (Join-Path $releasePath "backup-db.mjs") -Force
-    Set-Content -LiteralPath (Join-Path $releasePath "RELEASE.txt") -Value @("IncidentHub 1.13.0 Stable Dark","Built: $(Get-Date -Format o)","Source: $SourcePath") -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $releasePath "RELEASE.txt") -Value @("IncidentHub $releaseVersion","Built: $(Get-Date -Format o)","Source: $SourcePath") -Encoding UTF8
 
     Write-Host "==> 6/8 Taking online Production backup before cutover" -ForegroundColor Cyan
     $env:DB_PATH = $prodDb
@@ -172,6 +183,7 @@ try {
     Start-Sleep -Seconds 2
     Stop-Port $Port
     if(-not (Wait-PortFree $Port 30)){throw "Port $Port did not become free."}
+    Run-Native "node.exe" @("scripts\migrate-db.mjs") $buildPath
 
     Copy-Item -LiteralPath (Join-Path $SourcePath "scripts\Start-Stable-Production.ps1") -Destination (Join-Path $toolsPath "Start-Stable-Production.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $SourcePath "scripts\Backup-Stable-Production.ps1") -Destination (Join-Path $toolsPath "Backup-Stable-Production.ps1") -Force
@@ -180,7 +192,7 @@ try {
     Start-ScheduledTask -TaskName $TaskName
 
     Write-Host "==> 8/8 Health check" -ForegroundColor Cyan
-    $health = Wait-Health $Port 120
+    $health = Wait-Health $Port $healthSecret 120
     if($oldCurrentTarget -and (Test-Path -LiteralPath $oldCurrentTarget)){ Set-Junction $previousPath $oldCurrentTarget }
 
     Write-Host ""; Write-Host "[OK] IncidentHub Stable is running in the background." -ForegroundColor Green

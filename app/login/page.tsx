@@ -21,6 +21,8 @@ export default async function LoginPage({
   const params = await searchParams;
   const error = params.error === "invalid"
     ? "نام کاربری، ایمیل یا رمز عبور نادرست است."
+    : params.error === "locked"
+      ? "به‌دلیل تلاش‌های ناموفق پیاپی، ورود موقتاً محدود شده است. چند دقیقه بعد دوباره تلاش کنید."
     : params.error === "config"
       ? "ورود در حال حاضر در دسترس نیست."
       : "";

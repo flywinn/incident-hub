@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Incident evidence uses authenticated/object URLs, and UI micro-illustrations are animated GIFs. */
+
 /* IncidentHub UI v1.11.3 · Simple Login + Self-service Username */
 
 import {
@@ -384,7 +386,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
       if (!response.ok) {
         if (response.status === 401 && window.location.pathname !== "/login") {
-          window.location.assign("/login");
+          window.location.replace("/login");
         }
         const serverRequestId = payload?.requestId || response.headers.get("x-request-id") || requestId;
         const retryable = payload?.retryable === true || [502, 503, 504].includes(response.status);
@@ -1185,7 +1187,7 @@ function Dashboard({
       content = (
         <section className="panel unified-dashboard-incidents">
           <PanelHeader title={widgetTitle("incidents")} subtitle="فقط موارد باز؛ مرتب‌شده براساس آخرین مشاهده" action={<button className="text-button" onClick={onSeeAll}>مشاهده همه ←</button>} />
-          <BugTable bugs={recentBugs} assignees={data.assignees} onSelect={onSelectBug} compact onQuickUpdate={canEdit ? onQuickUpdate : undefined} />
+          <BugTable bugs={recentBugs} assignees={data.assignees} onSelect={onSelectBug} compact adaptiveColumns={adaptiveTables} onQuickUpdate={canEdit ? onQuickUpdate : undefined} />
         </section>
       );
     } else if (key === "followups") {
@@ -1714,7 +1716,7 @@ function BugTable({
                   {isOpen && <span className="open-state-pill"><Icon name="activity" size={12} /><i></i>باز</span>}
                 </div>
                 <strong className="bug-title">{String(bug.title)}</strong>
-                <div className="bug-observation-summary"><span>ثبت {formatDate(bug.created_at)}</span><span>آخرین مشاهده {formatRelativeDate(bug.last_seen_at)}</span><b>{faNumber(bug.occurrence_count)} بار</b><em>{sourceLabels[String(bug.source)] ?? String(bug.source)}</em></div>
+                {adaptiveColumns && <div className="bug-observation-summary"><span>ثبت {formatDate(bug.created_at)}</span><span>آخرین مشاهده {formatRelativeDate(bug.last_seen_at)}</span><b>{faNumber(bug.occurrence_count)} بار</b><em>{sourceLabels[String(bug.source)] ?? String(bug.source)}</em></div>}
               </td>
               <td data-label="سرویس" className="service-record-cell"><span className="service-path">{String(bug.service_label).replace("ELK > ", "")}</span></td>
               <td data-label="اولویت" className={cx("priority-cell", `priority-${String(bug.priority).toLowerCase()}`)}>{onQuickUpdate ? (
@@ -2167,8 +2169,6 @@ function AuditPage({ logs }: { logs: Row[] }) {
     PASSWORD_CHANGED: "تغییر رمز عبور",
     LOCAL_AUTH_BOOTSTRAP: "فعال‌سازی ورود محلی",
     PURGE_DEMO_USERS: "حذف حساب‌های آزمایشی",
-    LOCAL_AUTH_BOOTSTRAP: "فعال‌سازی ورود محلی",
-    PASSWORD_CHANGED: "تغییر رمز عبور",
   };
   const actors = [...new Set(logs.map((item) => String(item.actor)).filter(Boolean))];
   const shown = logs.filter((item) =>

@@ -1,10 +1,14 @@
 import { apiError, cleanText, requestIdFor } from "../../../lib/api";
+import { authorizeRequest } from "../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const requestId = requestIdFor(request);
   try {
+    const auth = await authorizeRequest(request, ["ADMIN", "OPERATOR", "VIEWER"]);
+    if ("response" in auth) return auth.response;
+
     const declaredLength = Number(request.headers.get("content-length") ?? 0);
     if (Number.isFinite(declaredLength) && declaredLength > 8192) {
       return Response.json(
@@ -30,6 +34,7 @@ export async function POST(request: Request) {
       page: cleanText(payload.page, 300),
       message: cleanText(payload.message, 1000),
       digest: cleanText(payload.digest, 200),
+      actor: auth.user.email,
       userAgent: cleanText(request.headers.get("user-agent"), 500),
     }));
 

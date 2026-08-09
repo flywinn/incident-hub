@@ -36,6 +36,27 @@ if (!existsSync(migrationsDir)) {
 
 mkdirSync(dirname(dbPath), { recursive: true });
 const database = new Database(dbPath);
+
+function quoteIdentifier(value) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid migration identifier: ${value}`);
+  }
+  return `"${value}"`;
+}
+
+function ensureDeclaredColumns(sql) {
+  const declaration = /^\s*--\s*@ensure-column\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$/gmi;
+  for (const match of sql.matchAll(declaration)) {
+    const [, tableName, columnName, definition] = match;
+    const table = quoteIdentifier(tableName);
+    const column = quoteIdentifier(columnName);
+    const columns = database.prepare(`PRAGMA table_info(${table})`).all();
+    if (!columns.some((item) => String(item.name) === columnName)) {
+      database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition.trim()}`);
+    }
+  }
+}
+
 try {
   database.pragma("foreign_keys = ON");
   database.pragma("journal_mode = WAL");
@@ -72,6 +93,7 @@ try {
     }
 
     const applyMigration = database.transaction(() => {
+      ensureDeclaredColumns(sql);
       database.exec(sql);
       database.prepare(
         "INSERT INTO schema_migrations (migration_name, checksum_sha256) VALUES (?, ?)",

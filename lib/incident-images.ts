@@ -11,7 +11,7 @@ const MIME_EXTENSIONS: Record<string, string> = {
 };
 
 export function incidentImagesRoot() {
-  return resolve(process.env.INCIDENT_IMAGES_DIR || "./data/incident-images");
+  return resolve(/* turbopackIgnore: true */ process.env.INCIDENT_IMAGES_DIR || "./data/incident-images");
 }
 
 function detectedMime(bytes: Uint8Array) {
@@ -36,7 +36,7 @@ export async function saveIncidentImage(bugId: number, file: File) {
 
 export async function readIncidentImage(bugId: number, storedName: string) {
   if (!/^[a-f0-9-]+\.(jpg|png|webp)$/i.test(storedName)) throw new Error("نام فایل معتبر نیست.");
-  return readFile(resolve(incidentImagesRoot(), String(bugId), storedName));
+  return readFile(/* turbopackIgnore: true */ resolve(incidentImagesRoot(), String(bugId), storedName));
 }
 
 export async function deleteIncidentImage(bugId: number, storedName: string) {

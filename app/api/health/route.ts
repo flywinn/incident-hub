@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { statfsSync } from "node:fs";
 import { dirname } from "node:path";
 import { databasePath } from "../../../db";
@@ -9,6 +10,15 @@ export const dynamic = "force-dynamic";
 function minimumFreeDiskMb() {
   const configured = Number(process.env.MIN_FREE_DISK_MB ?? 1024);
   return Number.isFinite(configured) ? Math.max(256, Math.trunc(configured)) : 1024;
+}
+
+function detailedHealthAuthorized(request: Request) {
+  const expected = process.env.HEALTH_DETAILS_SECRET?.trim() ?? "";
+  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  if (!expected || !supplied) return false;
+  const left = Buffer.from(supplied);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 export async function GET(request: Request) {
@@ -25,20 +35,27 @@ export async function GET(request: Request) {
     const diskOk = freeMb >= minimumMb;
     const status = databaseOk && diskOk ? "ok" : "degraded";
 
+    const publicHealth = {
+      status,
+      timestamp: new Date().toISOString(),
+      requestId,
+    };
+    const health = detailedHealthAuthorized(request)
+      ? {
+          ...publicHealth,
+          database: databaseOk ? "ok" : "error",
+          disk: {
+            status: diskOk ? "ok" : "low",
+            freeMb,
+            minimumMb,
+          },
+          uptimeSeconds: Math.floor(process.uptime()),
+          version: process.env.APP_VERSION || "1.14.0",
+        }
+      : publicHealth;
+
     return Response.json(
-      {
-        status,
-        database: databaseOk ? "ok" : "error",
-        disk: {
-          status: diskOk ? "ok" : "low",
-          freeMb,
-          minimumMb,
-        },
-        uptimeSeconds: Math.floor(process.uptime()),
-        version: process.env.APP_VERSION || "1.0.0",
-        timestamp: new Date().toISOString(),
-        requestId,
-      },
+      health,
       {
         status: status === "ok" ? 200 : 503,
         headers: {

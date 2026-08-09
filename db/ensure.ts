@@ -12,6 +12,7 @@ const schemaStatements = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     full_name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE,
+    username TEXT,
     role TEXT NOT NULL DEFAULT 'OPERATOR',
     team TEXT NOT NULL DEFAULT 'عملیات',
     is_active INTEGER NOT NULL DEFAULT 1,
@@ -140,6 +141,11 @@ const schemaStatements = [
     updated_by TEXT NOT NULL DEFAULT 'سامانه',
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS user_credentials (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
   `INSERT OR IGNORE INTO app_settings (setting_key, value_json, updated_by)
     VALUES ('main', '{}', 'سامانه')`,
   "CREATE INDEX IF NOT EXISTS bugs_status_idx ON bugs(status)",
@@ -156,6 +162,12 @@ const schemaStatements = [
   "CREATE INDEX IF NOT EXISTS audit_logs_entity_idx ON audit_logs(entity_type, entity_id)",
 ];
 
+const indexStatements = [
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique_idx
+    ON users(username COLLATE NOCASE)
+    WHERE username IS NOT NULL AND username <> ''`,
+];
+
 let initialized = false;
 let initializationPromise: Promise<ReturnType<typeof getRawDb>> | null = null;
 
@@ -166,6 +178,11 @@ export async function ensureDatabase() {
   initializationPromise = (async () => {
     const d1 = getRawDb();
     await d1.batch(schemaStatements.map((statement) => d1.prepare(statement)));
+    const userColumns = (await d1.prepare("PRAGMA table_info(users)").all<Record<string, unknown>>()).results;
+    if (!userColumns.some((column) => String(column.name) === "username")) {
+      await d1.prepare("ALTER TABLE users ADD COLUMN username TEXT").run();
+    }
+    await d1.batch(indexStatements.map((statement) => d1.prepare(statement)));
     if (process.env.SEED_DEMO_DATA === "true") {
       await seedDatabase(d1);
     }

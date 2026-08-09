@@ -93,7 +93,7 @@ export class LocalD1Database {
 let singleton: LocalD1Database | null = null;
 
 export function databasePath() {
-  return resolve(process.env.DB_PATH || "./data/incident-hub.sqlite");
+  return resolve(/* turbopackIgnore: true */ process.env.DB_PATH || "./data/incident-hub.sqlite");
 }
 
 export function getRawDb(): LocalD1Database {

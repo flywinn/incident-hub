@@ -3,7 +3,8 @@ param(
     [string]$Root = "D:\IncidentHub",
     [string]$ProjectPath = "D:\IncidentHub\Dev",
     [string]$DbPath = "D:\IncidentHub\Data\Prod\incident-hub.sqlite",
-    [int]$Port = 3000
+    [int]$Port = 3000,
+    [switch]$SecureCookie
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -12,6 +13,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectPath "scripts\reset-super-ad
 $confirm = Read-Host "Type PRODUCTION to configure Local Auth on the production database"
 if ($confirm -cne "PRODUCTION") { throw "Cancelled." }
 Set-Location $ProjectPath
+$packagePath = Join-Path $ProjectPath "package.json"
+if (-not (Test-Path -LiteralPath $packagePath)) { throw "package.json not found in project." }
+$releaseVersion = [string]((Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json).version)
+if ($releaseVersion -notmatch '^\d+\.\d+\.\d+([-.][A-Za-z0-9.-]+)?$') { throw "Invalid package version: $releaseVersion" }
 $env:DB_PATH = $DbPath
 Write-Host "Current production users:" -ForegroundColor Cyan
 node .\scripts\reset-super-admin.mjs --list
@@ -56,21 +61,31 @@ function Set-Env([string]$Key,[string]$Value) {
     $script:lines += "$Key=$Value"
 }
 function Remove-Env([string]$Key) { $script:lines = @($script:lines | Where-Object { $_ -notmatch ('^\s*'+[regex]::Escape($Key)+'\s*=') }) }
-$bytes = New-Object byte[] 48; $rng=[Security.Cryptography.RandomNumberGenerator]::Create(); try{$rng.GetBytes($bytes)}finally{$rng.Dispose()}
+$sessionBytes = New-Object byte[] 48
+$healthBytes = New-Object byte[] 48
+$rng=[Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($sessionBytes); $rng.GetBytes($healthBytes) } finally { $rng.Dispose() }
 Set-Env "DB_PATH" $DbPath
 Set-Env "INCIDENT_IMAGES_DIR" (Join-Path $Root "Data\Prod\IncidentImages")
 Set-Env "HOSTNAME" "0.0.0.0"
 Set-Env "PORT" ([string]$Port)
 Set-Env "AUTH_DISABLED" "false"
 Set-Env "AUTH_MODE" "LOCAL"
-Set-Env "AUTH_SESSION_SECRET" ([Convert]::ToBase64String($bytes))
+Set-Env "AUTH_SESSION_SECRET" ([Convert]::ToBase64String($sessionBytes))
 Set-Env "AUTH_SESSION_HOURS" "12"
-Set-Env "AUTH_COOKIE_SECURE" "false"
+$cookieSecure = if ($SecureCookie) { "true" } else { "false" }
+Set-Env "AUTH_COOKIE_SECURE" $cookieSecure
+Set-Env "AUTH_TRUST_PROXY_HEADERS" "false"
+Set-Env "AUTH_LOGIN_MAX_FAILURES" "5"
+Set-Env "AUTH_LOGIN_SOURCE_MAX_FAILURES" "50"
+Set-Env "AUTH_LOGIN_WINDOW_SECONDS" "900"
+Set-Env "AUTH_LOGIN_LOCK_SECONDS" "900"
+Set-Env "HEALTH_DETAILS_SECRET" ([Convert]::ToBase64String($healthBytes))
 Set-Env "LOCAL_AUTH_BOOTSTRAP_EMAIL" $email
 Remove-Env "LOCAL_AUTH_BOOTSTRAP_PASSWORD"
 Set-Env "SEED_DEMO_DATA" "false"
 Set-Env "IMPORT_BUNDLED_REPORT" "false"
-Set-Env "APP_VERSION" "1.13.0-stable-dark"
+Set-Env "APP_VERSION" $releaseVersion
 Set-Env "SQLITE_BUSY_TIMEOUT_MS" "10000"
 Set-Env "MIN_FREE_DISK_MB" "1024"
 Set-Env "STARTUP_MIN_FREE_DISK_MB" "512"
@@ -82,3 +97,4 @@ New-Item -ItemType Directory -Force (Join-Path $Root "Data\Prod\IncidentImages")
 Write-Host "[OK] Production Local Auth configured." -ForegroundColor Green
 Write-Host "[OK] Production config: $configPath" -ForegroundColor Green
 Write-Host "[OK] Plain-text password was not stored." -ForegroundColor Green
+if (-not $SecureCookie) { Write-Host "[WARN] AUTH_COOKIE_SECURE=false. Use -SecureCookie when users access IncidentHub through HTTPS." -ForegroundColor Yellow }
