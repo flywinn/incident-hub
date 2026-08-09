@@ -89,6 +89,23 @@ test("backs up incident images with the SQLite database", async () => {
   assert.match(backup, /incident-images-/);
 });
 
+test("configures Dev and Production to use one shared Production data source", async () => {
+  const [configure, startDev] = await Promise.all([
+    read("../scripts/Configure-Production-Like-Dev.ps1"),
+    read("../scripts/Start-LocalAuth-Dev.ps1"),
+  ]);
+  assert.match(configure, /AUTH_SYNC_MODE = "MERGE"/);
+  assert.match(configure, /DevBeforeSharedData/);
+  assert.match(configure, /INCIDENTHUB_DATA_MODE" "SHARED_PRODUCTION"/);
+  assert.match(configure, /Set-DevEnv "DB_PATH" \$ProdDbPath/);
+  assert.match(configure, /Set-DevEnv "INCIDENT_IMAGES_DIR" \$prodImages/);
+  assert.match(configure, /SQLITE_BUSY_TIMEOUT_MS" "30000"/);
+  assert.match(startDev, /INCIDENTHUB_DATA_MODE/);
+  assert.match(startDev, /\$env:DB_PATH = \$dbPath/);
+  assert.match(startDev, /\$env:INCIDENT_IMAGES_DIR = \$imagesPath/);
+  assert.doesNotMatch(startDev, /Data\\Dev\\incident-hub-dev\.sqlite/);
+});
+
 
 test("uses incident-first responsive UI with semantic icons", async () => {
   const [ui, css] = await Promise.all([

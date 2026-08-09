@@ -112,3 +112,58 @@ test("Dev authentication is mirrored without replacing Production incidents or u
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("merge mode preserves Production-only logins while adopting the Dev Super Admin", () => {
+  const directory = mkdtempSync(join(tmpdir(), "incidenthub-auth-merge-"));
+  const devPath = join(directory, "dev.sqlite");
+  const productionPath = join(directory, "production.sqlite");
+  const dev = createDatabase(devPath);
+  const production = createDatabase(productionPath);
+  try {
+    dev.prepare("INSERT INTO users (full_name, email, username, role, team, is_active) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("Dev Owner", "owner@example.test", "owner", "SUPER_ADMIN", "Ops", 1);
+    dev.prepare("INSERT INTO user_credentials (user_id, password_hash) VALUES (1, ?)").run("scrypt-v1$owner$hash");
+
+    production.prepare("INSERT INTO users (full_name, email, username, role, team, is_active) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("Production Admin", "prod@example.test", "prod-admin", "SUPER_ADMIN", "Prod", 1);
+    production.prepare("INSERT INTO user_credentials (user_id, password_hash) VALUES (1, ?)").run("scrypt-v1$prod$hash");
+  } finally {
+    dev.close();
+    production.close();
+  }
+
+  try {
+    const script = fileURLToPath(new URL("../scripts/sync-dev-auth-to-production.mjs", import.meta.url));
+    const output = execFileSync(process.execPath, [script], {
+      env: {
+        ...process.env,
+        DEV_DB_PATH: devPath,
+        PROD_DB_PATH: productionPath,
+        AUTH_SYNC_MODE: "MERGE",
+      },
+      encoding: "utf8",
+    });
+    const report = JSON.parse(output);
+    assert.equal(report.status, "ok");
+    assert.equal(report.mode, "MERGE");
+    assert.equal(report.inserted, 1);
+    assert.equal(report.preserved, 1);
+    assert.equal(report.deactivated, 0);
+    assert.equal(report.superAdminsDemoted, 1);
+
+    const result = new Database(productionPath, { readonly: true });
+    try {
+      const productionOnly = result.prepare("SELECT * FROM users WHERE email = 'prod@example.test'").get();
+      assert.equal(productionOnly.is_active, 1);
+      assert.equal(productionOnly.username, "prod-admin");
+      assert.equal(productionOnly.role, "ADMIN");
+      assert.equal(result.prepare("SELECT password_hash FROM user_credentials WHERE user_id = ?").get(productionOnly.id).password_hash, "scrypt-v1$prod$hash");
+      assert.equal(result.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'SUPER_ADMIN' AND is_active = 1").get().count, 1);
+      assert.equal(result.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'MERGE_DEV_AUTH_TO_PRODUCTION'").get().count, 1);
+    } finally {
+      result.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

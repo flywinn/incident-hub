@@ -21,6 +21,10 @@ function tableExists(database, table) {
 
 const devPath = requireDatabasePath("DEV_DB_PATH");
 const productionPath = requireDatabasePath("PROD_DB_PATH");
+const syncMode = String(process.env.AUTH_SYNC_MODE ?? "MIRROR").trim().toUpperCase();
+if (!new Set(["MIRROR", "MERGE"]).has(syncMode)) {
+  fail("AUTH_SYNC_MODE must be MIRROR or MERGE.");
+}
 if (devPath.toLowerCase() === productionPath.toLowerCase()) {
   fail("Development and Production database paths must be different.");
 }
@@ -74,6 +78,9 @@ try {
     const existingUsers = production.prepare("SELECT * FROM users ORDER BY id").all();
     const existingByEmail = new Map(existingUsers.map((user) => [String(user.email).trim().toLowerCase(), user]));
     const sourceEmails = new Set(devUsers.map((user) => String(user.email).trim().toLowerCase()));
+    const sourceUsernames = new Set(devUsers
+      .map((user) => String(user.username ?? "").trim().toLowerCase())
+      .filter(Boolean));
 
     // Release all Production usernames first so username swaps from Dev cannot
     // collide with the case-insensitive unique index during the transaction.
@@ -132,28 +139,52 @@ try {
     }
 
     let deactivated = 0;
+    let preserved = 0;
+    let superAdminsDemoted = 0;
     for (const existing of existingUsers) {
       const email = String(existing.email).trim().toLowerCase();
       if (sourceEmails.has(email)) continue;
-      production.prepare("UPDATE users SET username = NULL, is_active = 0 WHERE id = ?").run(Number(existing.id));
-      credentialsCleared += deleteCredential.run(Number(existing.id)).changes;
-      deactivated += 1;
+      if (syncMode === "MIRROR") {
+        production.prepare("UPDATE users SET username = NULL, is_active = 0 WHERE id = ?").run(Number(existing.id));
+        credentialsCleared += deleteCredential.run(Number(existing.id)).changes;
+        deactivated += 1;
+        continue;
+      }
+
+      const existingUsername = String(existing.username ?? "").trim().toLowerCase();
+      const safeUsername = existingUsername && !sourceUsernames.has(existingUsername) ? existingUsername : null;
+      const role = existing.role === "SUPER_ADMIN" && Number(existing.is_active) !== 0 ? "ADMIN" : String(existing.role);
+      production.prepare("UPDATE users SET username = ?, role = ? WHERE id = ?")
+        .run(safeUsername, role, Number(existing.id));
+      if (role !== existing.role) superAdminsDemoted += 1;
+      preserved += 1;
     }
 
     production.prepare(`INSERT INTO audit_logs
       (entity_type, entity_id, action, actor, after_value)
-      VALUES ('USER', 'ALL', 'SYNC_DEV_AUTH_TO_PRODUCTION', 'local-maintenance', ?)`)
-      .run(JSON.stringify({
+      VALUES ('USER', 'ALL', ?, 'local-maintenance', ?)`)
+      .run(syncMode === "MERGE" ? "MERGE_DEV_AUTH_TO_PRODUCTION" : "SYNC_DEV_AUTH_TO_PRODUCTION", JSON.stringify({
+        mode: syncMode,
         sourceUserCount: devUsers.length,
         updated,
         inserted,
         deactivated,
+        preserved,
+        superAdminsDemoted,
         credentialsCopied,
         credentialsCleared,
         idMap,
       }));
 
-    return { updated, inserted, deactivated, credentialsCopied, credentialsCleared };
+    return {
+      updated,
+      inserted,
+      deactivated,
+      preserved,
+      superAdminsDemoted,
+      credentialsCopied,
+      credentialsCleared,
+    };
   })();
 
   const integrity = production.pragma("quick_check", { simple: true });
@@ -167,6 +198,7 @@ try {
 
   console.log(JSON.stringify({
     status: "ok",
+    mode: syncMode,
     developmentDatabase: devPath,
     productionDatabase: productionPath,
     sourceUsers: devUsers.length,

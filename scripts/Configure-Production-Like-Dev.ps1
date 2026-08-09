@@ -4,9 +4,12 @@ param(
     [string]$Root = "D:\IncidentHub",
     [string]$ProjectPath = "D:\IncidentHub\Dev",
     [string]$DevDbPath = "D:\IncidentHub\Data\Dev\incident-hub-dev.sqlite",
+    [string]$DevImagesPath = "D:\IncidentHub\Data\Dev\IncidentImages",
     [string]$ProdDbPath = "D:\IncidentHub\Data\Prod\incident-hub.sqlite",
     [int]$Port = 3000,
-    [switch]$SecureCookie
+    [int]$DevPort = 3001,
+    [switch]$SecureCookie,
+    [switch]$Reconfigure
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +40,16 @@ function New-RandomSecret {
     try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
     return [Convert]::ToBase64String($bytes)
 }
+function Stop-NodePort([int]$ListenPort) {
+    $listeners = @(Get-NetTCPConnection -LocalPort $ListenPort -State Listen -ErrorAction SilentlyContinue)
+    foreach ($listener in $listeners) {
+        $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+        if ($process -and $process.ProcessName -ne "node") {
+            throw "Port $ListenPort is owned by non-Node process PID $($listener.OwningProcess) ($($process.ProcessName))."
+        }
+        Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
+}
 
 Require-Admin
 foreach ($path in @($DevDbPath, $ProdDbPath)) {
@@ -53,27 +66,48 @@ foreach ($path in @($syncScript, $backupScript, $migrationScript)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Required script not found: $path" }
 }
 
-$confirm = Read-Host "Type PRODUCTION to back up Prod and mirror every Dev login account"
+$devConfigPath = Join-Path $ProjectPath ".env.local"
+if ((Test-Path -LiteralPath $devConfigPath) -and -not $Reconfigure) {
+    $existingDevLines = @(Get-Content -LiteralPath $devConfigPath)
+    if ((Get-EnvValue $existingDevLines "INCIDENTHUB_DATA_MODE") -eq "SHARED_PRODUCTION") {
+        throw "Shared Production data is already configured. Use -Reconfigure only when intentionally repairing its configuration."
+    }
+}
+
+$confirm = Read-Host "Type PRODUCTION to back up both environments, merge Dev logins, and make Production data shared"
 if ($confirm -cne "PRODUCTION") { throw "Cancelled." }
+Stop-NodePort $DevPort
 
 $prodImages = Join-Path $Root "Data\Prod\IncidentImages"
-$backupDir = Join-Path $Root "Backups\Prod"
-New-Item -ItemType Directory -Force $prodImages, $backupDir | Out-Null
+$prodBackupDir = Join-Path $Root "Backups\Prod"
+$devBackupDir = Join-Path $Root "Backups\DevBeforeSharedData"
+$configBackupDir = Join-Path $Root ("Backups\SharedDataConfig\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Force $prodImages, $prodBackupDir, $devBackupDir, $configBackupDir | Out-Null
 
 Set-Location $ProjectPath
 $env:DB_PATH = $ProdDbPath
 $env:INCIDENT_IMAGES_DIR = $prodImages
-$env:BACKUP_DIR = $backupDir
+$env:BACKUP_DIR = $prodBackupDir
 
-Write-Host "==> 1/4 Backing up Production database and incident images" -ForegroundColor Cyan
+Write-Host "==> 1/6 Backing up Production database and incident images" -ForegroundColor Cyan
 Run-Native "node.exe" @($backupScript) $ProjectPath
 
-Write-Host "==> 2/4 Applying numbered schema migrations to Production" -ForegroundColor Cyan
+Write-Host "==> 2/6 Backing up the isolated Dev database and incident images" -ForegroundColor Cyan
+$env:DB_PATH = $DevDbPath
+$env:INCIDENT_IMAGES_DIR = $DevImagesPath
+$env:BACKUP_DIR = $devBackupDir
+Run-Native "node.exe" @($backupScript) $ProjectPath
+
+Write-Host "==> 3/6 Applying numbered schema migrations to Production" -ForegroundColor Cyan
+$env:DB_PATH = $ProdDbPath
+$env:INCIDENT_IMAGES_DIR = $prodImages
+$env:BACKUP_DIR = $prodBackupDir
 Run-Native "node.exe" @($migrationScript) $ProjectPath
 
-Write-Host "==> 3/4 Mirroring Dev users, roles, usernames and password hashes" -ForegroundColor Cyan
+Write-Host "==> 4/6 Merging Dev users, roles, usernames and password hashes" -ForegroundColor Cyan
 $env:DEV_DB_PATH = $DevDbPath
 $env:PROD_DB_PATH = $ProdDbPath
+$env:AUTH_SYNC_MODE = "MERGE"
 try {
     $syncOutput = @(& node.exe $syncScript)
     if ($LASTEXITCODE -ne 0) { throw "Authentication synchronization failed with exit code $LASTEXITCODE" }
@@ -82,12 +116,13 @@ try {
 } finally {
     Remove-Item Env:DEV_DB_PATH -ErrorAction SilentlyContinue
     Remove-Item Env:PROD_DB_PATH -ErrorAction SilentlyContinue
+    Remove-Item Env:AUTH_SYNC_MODE -ErrorAction SilentlyContinue
 }
 if ($syncReport.status -ne "ok" -or [string]::IsNullOrWhiteSpace([string]$syncReport.superAdmin.email)) {
     throw "Synchronization report is incomplete."
 }
 
-Write-Host "==> 4/4 Writing isolated Production Local Auth configuration" -ForegroundColor Cyan
+Write-Host "==> 5/6 Writing Production Local Auth configuration" -ForegroundColor Cyan
 $packagePath = Join-Path $ProjectPath "package.json"
 $releaseVersion = [string]((Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json).version)
 $configDir = Join-Path $Root "Config\Prod"
@@ -135,19 +170,66 @@ Remove-Env "LOCAL_AUTH_BOOTSTRAP_PASSWORD"
 Set-Env "SEED_DEMO_DATA" "false"
 Set-Env "IMPORT_BUNDLED_REPORT" "false"
 Set-Env "APP_VERSION" $releaseVersion
-Set-Env "SQLITE_BUSY_TIMEOUT_MS" "10000"
+Set-Env "INCIDENTHUB_DATA_MODE" "SHARED_PRODUCTION"
+Set-Env "SQLITE_BUSY_TIMEOUT_MS" "30000"
 Set-Env "MIN_FREE_DISK_MB" "1024"
 Set-Env "STARTUP_MIN_FREE_DISK_MB" "512"
-Set-Env "BACKUP_DIR" $backupDir
+Set-Env "BACKUP_DIR" $prodBackupDir
 Set-Env "BACKUP_RETENTION_COUNT" "14"
 
 $utf8 = New-Object Text.UTF8Encoding($true)
+if (Test-Path -LiteralPath $configPath) {
+    Copy-Item -LiteralPath $configPath -Destination (Join-Path $configBackupDir ".env.production") -Force
+}
 [IO.File]::WriteAllLines($configPath, [string[]]$lines, $utf8)
 
-Write-Host "[OK] Production authentication now mirrors Dev accounts and passwords." -ForegroundColor Green
-Write-Host "[OK] Production incidents and assignments were preserved." -ForegroundColor Green
+Write-Host "==> 6/6 Pointing Dev at the same Production database and incident-image directory" -ForegroundColor Cyan
+$devLines = if (Test-Path -LiteralPath $devConfigPath) { @(Get-Content -LiteralPath $devConfigPath) } else { @() }
+if (Test-Path -LiteralPath $devConfigPath) {
+    Copy-Item -LiteralPath $devConfigPath -Destination (Join-Path $configBackupDir ".env.local") -Force
+}
+function Set-DevEnv([string]$Key, [string]$Value) {
+    $script:devLines = @($script:devLines | Where-Object { $_ -notmatch ('^\s*' + [regex]::Escape($Key) + '\s*=') })
+    $script:devLines += "$Key=$Value"
+}
+function Remove-DevEnv([string]$Key) {
+    $script:devLines = @($script:devLines | Where-Object { $_ -notmatch ('^\s*' + [regex]::Escape($Key) + '\s*=') })
+}
+
+$devSessionSecret = Get-EnvValue $devLines "AUTH_SESSION_SECRET"
+if ($devSessionSecret.Length -lt 32) { $devSessionSecret = New-RandomSecret }
+$devHealthSecret = Get-EnvValue $devLines "HEALTH_DETAILS_SECRET"
+if ($devHealthSecret.Length -lt 32) { $devHealthSecret = New-RandomSecret }
+
+Set-DevEnv "DB_PATH" $ProdDbPath
+Set-DevEnv "INCIDENT_IMAGES_DIR" $prodImages
+Set-DevEnv "HOSTNAME" "0.0.0.0"
+Set-DevEnv "PORT" ([string]$DevPort)
+Set-DevEnv "AUTH_DISABLED" "false"
+Set-DevEnv "AUTH_MODE" "LOCAL"
+Set-DevEnv "AUTH_SESSION_SECRET" $devSessionSecret
+Set-DevEnv "AUTH_SESSION_HOURS" "12"
+Set-DevEnv "AUTH_COOKIE_SECURE" "false"
+Set-DevEnv "AUTH_TRUST_PROXY_HEADERS" "false"
+Set-DevEnv "HEALTH_DETAILS_SECRET" $devHealthSecret
+Set-DevEnv "LOCAL_AUTH_BOOTSTRAP_EMAIL" ([string]$syncReport.superAdmin.email)
+Remove-DevEnv "LOCAL_AUTH_BOOTSTRAP_PASSWORD"
+Set-DevEnv "SEED_DEMO_DATA" "false"
+Set-DevEnv "IMPORT_BUNDLED_REPORT" "false"
+Set-DevEnv "INCIDENTHUB_DATA_MODE" "SHARED_PRODUCTION"
+Set-DevEnv "SQLITE_BUSY_TIMEOUT_MS" "30000"
+[IO.File]::WriteAllLines($devConfigPath, [string[]]$devLines, $utf8)
+
+Write-Host "[OK] Dev login accounts were merged into Production; existing Production users were preserved." -ForegroundColor Green
+Write-Host "[OK] Production incidents, settings, assignments and images were preserved." -ForegroundColor Green
+Write-Host "[OK] Dev and Production now use the same database: $ProdDbPath" -ForegroundColor Green
+Write-Host "[OK] Dev and Production now use the same images: $prodImages" -ForegroundColor Green
 Write-Host "[OK] Production config: $configPath" -ForegroundColor Green
+Write-Host "[OK] Dev config: $devConfigPath" -ForegroundColor Green
+Write-Host "[OK] Previous configs: $configBackupDir" -ForegroundColor Green
+Write-Host "[OK] Isolated Dev database was backed up and left in place; it is no longer active." -ForegroundColor Green
 Write-Host "[OK] Plain-text passwords and password hashes were not printed or stored in config." -ForegroundColor Green
 if (-not $SecureCookie) {
     Write-Host "[WARN] AUTH_COOKIE_SECURE=false. Use -SecureCookie when users access IncidentHub through HTTPS." -ForegroundColor Yellow
 }
+Write-Host "[NEXT] Install Stable Production, then start Dev with scripts\Start-LocalAuth-Dev.ps1." -ForegroundColor Cyan
