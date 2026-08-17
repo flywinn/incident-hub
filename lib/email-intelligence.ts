@@ -146,34 +146,44 @@ function directTechnicalValues(bug: Record<string, unknown>, keys: string[]) {
   }).map((value) => String(value ?? "").trim()).filter(Boolean);
 }
 
+function labeledValues(text: string, labels: string[]) {
+  const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const pattern = new RegExp(`(?:^|\\n|\\s)(?:${escaped})\\s*[:=：-]\\s*([A-Za-z0-9_.-]+)`, "gi");
+  return [...text.matchAll(pattern)].map((match) => match[1]);
+}
+
 export function extractLoadBalancers(bug: Record<string, unknown>) {
   const text = sourceText(bug);
   const direct = directTechnicalValues(bug, ["loadBalancer", "load_balancer", "lb", "frontend"]);
-  const matches = text.match(/\bLB-[A-Za-z0-9-]{2,}\b/g) ?? [];
-  return unique([...direct, ...matches]).slice(0, 6);
+  const labeled = labeledValues(text, ["LB", "LoadBalancer", "Load Balancer", "Frontend"]);
+  const matches = text.match(/\bLB-[A-Za-z0-9_.-]{2,}\b/gi) ?? [];
+  return unique([...direct, ...labeled, ...matches]).slice(0, 6);
 }
 
 export function extractBackends(bug: Record<string, unknown>) {
   const text = sourceText(bug);
-  const direct = directTechnicalValues(bug, ["backend", "backendName", "backend_name"]);
+  const direct = directTechnicalValues(bug, ["backend", "backendName", "backend_name", "bk"]);
+  const labeled = labeledValues(text, ["BK", "Backend", "BackendName", "Backend Name"]);
   const patterns = [
-    /\bbk_[A-Za-z0-9_.-]+\b/g,
+    /\bbk_[A-Za-z0-9_.-]+\b/gi,
     /\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_.-]*(?:Api|API)\b/g,
   ];
   const matches = patterns.flatMap((pattern) => text.match(pattern) ?? []);
-  return unique([...direct, ...matches]).slice(0, 8);
+  return unique([...direct, ...labeled, ...matches]).slice(0, 8);
 }
 
 export function extractServers(bug: Record<string, unknown>) {
   const text = sourceText(bug);
-  const direct = directTechnicalValues(bug, ["server", "serverName", "server_name", "node", "host"]);
+  const direct = directTechnicalValues(bug, ["server", "serverName", "server_name", "node", "host", "hostname"]);
+  const labeled = labeledValues(text, ["Server", "ServerName", "Server Name", "Host", "Hostname", "Node"]);
   const patterns = [
+    /\bHost[A-Za-z0-9_.-]*\b/gi,
     /\bAPI\d+[A-Za-z0-9_-]*\b/g,
-    /\b(?:WEB|SRV|APP|NODE)[-_]?[A-Za-z0-9]*\d+[A-Za-z0-9_-]*\b/g,
+    /\b(?:WEB|SRV|APP|NODE)[-_]?[A-Za-z0-9]*\d+[A-Za-z0-9_-]*\b/gi,
     /\bF\d+[A-Za-z]+[_-]\d+[A-Za-z0-9_-]*\b/g,
   ];
   const matches = patterns.flatMap((pattern) => text.match(pattern) ?? []);
-  return unique([...direct, ...matches]).slice(0, 8);
+  return unique([...direct, ...labeled, ...matches]).slice(0, 8);
 }
 
 export function extractComponents(bug: Record<string, unknown>) {
@@ -275,10 +285,6 @@ function dateTimeFromValue(value: unknown) {
   }).format(date);
 }
 
-function isEndpointLed(text: string, endpoints: string[]) {
-  return endpoints.length === 1 && /(?:در\s+مسیر|مسیر\s+[^\n]*خطا)/i.test(text);
-}
-
 function compactFunctionalNarrative(bug: Record<string, unknown>) {
   const description = collapseWhitespace(String(bug.description ?? ""));
   const title = collapseWhitespace(String(bug.title ?? ""));
@@ -372,16 +378,23 @@ function buildTechnicalDraft(bug: Record<string, unknown>, recipients: string[],
   const endpoints = extractUsefulEndpoints(bug);
   const errorCode = extractErrorCode(bug);
   const origin = detectOrigin(bug);
-  const endpointLed = isEndpointLed(text, endpoints);
   const explicitTime = explicitTimeFromText(text);
   const hour = explicitTime || (/(?:ساعت|حوالی)/.test(text) ? timeFromValue(bug.first_seen_at) : "");
   const timePrefix = hour ? `از حوالی ساعت ${hour}، ` : "";
-  const errorPhrase = errorCode ? `خطای ${errorCode}` : "اختلال";
-  const originPhrase = origin ? ` از سمت ${origin}` : "";
-  const location = endpointLed
-    ? `در مسیر ${endpoints[0]}`
-    : `در سرویس ${service}${originPhrase}`;
-  const subjectTarget = endpointLed ? endpoints[0] : `سرویس ${service}`;
+  const singleEndpoint = endpoints.length === 1 ? endpoints[0] : "";
+
+  let observation: string;
+  if (singleEndpoint && errorCode) {
+    observation = `به اطلاع می‌رساند ${timePrefix}خطای ${errorCode} در مسیر ${singleEndpoint} مشاهده شده است.`;
+  } else if (singleEndpoint) {
+    observation = `به اطلاع می‌رساند ${timePrefix}در مسیر ${singleEndpoint} اختلال مشاهده شده است.`;
+  } else if (errorCode) {
+    observation = `به اطلاع می‌رساند ${timePrefix}خطای ${errorCode} در سرویس ${service}${origin ? ` از سمت ${origin}` : ""} مشاهده شده است.`;
+  } else {
+    observation = `به اطلاع می‌رساند ${timePrefix}در سرویس ${service}${origin ? ` از سمت ${origin}` : ""} اختلال مشاهده شده است.`;
+  }
+
+  const subjectTarget = singleEndpoint || `سرویس ${service}`;
   const subject = errorCode
     ? `[${code}] خطای ${errorCode} در ${subjectTarget}`
     : `[${code}] اختلال در ${subjectTarget}`;
@@ -392,8 +405,8 @@ function buildTechnicalDraft(bug: Record<string, unknown>, recipients: string[],
     subject,
     body: [
       "با سلام و احترام،",
-      `جهت اطلاع، ${timePrefix}${location} ${errorPhrase} مشاهده شده است.`,
-      endpointLed ? "" : endpointBlock(endpoints),
+      observation,
+      endpoints.length > 1 ? endpointBlock(endpoints) : "",
       componentBlock(bug),
       metricBlock(bug),
       code ? `شناسه رخداد: ${code}` : "",
@@ -442,12 +455,19 @@ function buildInternalNoticeDraft(bug: Record<string, unknown>, recipients: stri
   };
 }
 
-function buildFollowUpDraft(bug: Record<string, unknown>, recipients: string[], defaultCc: string, lastEmailAt: unknown) {
+function buildFollowUpDraft(
+  bug: Record<string, unknown>,
+  recipients: string[],
+  defaultCc: string,
+  lastEmailAt: unknown,
+) {
   const code = String(bug.bug_code ?? "").trim();
   const service = humanizeService(bug.service_label);
   const lastSeenTime = new Date(String(bug.last_seen_at ?? "")).getTime();
   const lastEmailTime = new Date(String(lastEmailAt ?? "")).getTime();
-  const observedAfterLastEmail = Number.isFinite(lastSeenTime) && Number.isFinite(lastEmailTime) && lastSeenTime > lastEmailTime;
+  const observedAfterLastEmail = Number.isFinite(lastSeenTime)
+    && Number.isFinite(lastEmailTime)
+    && lastSeenTime > lastEmailTime;
   const statusSentence = observedAfterLastEmail
     ? "پیرو اطلاع‌رسانی قبلی، خطا در آخرین بررسی نیز مشاهده شده است."
     : "پیرو اطلاع‌رسانی قبلی، موضوع همچنان در وضعیت باز قرار دارد.";
@@ -485,7 +505,11 @@ function buildResolutionDraft(bug: Record<string, unknown>, recipients: string[]
   };
 }
 
-function recommendationReason(bug: Record<string, unknown>, intent: SmartEmailTemplateKey, historyCount: number) {
+function recommendationReason(
+  bug: Record<string, unknown>,
+  intent: SmartEmailTemplateKey,
+  historyCount: number,
+) {
   const errorCode = extractErrorCode(bug);
   const endpoints = extractUsefulEndpoints(bug);
   const status = String(bug.status ?? "NEW");
