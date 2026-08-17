@@ -14,11 +14,18 @@ function safeHeaderText(value: unknown, max: number) {
   return cleanText(value, max).replace(/[\r\n]+/g, " ").trim();
 }
 
+function emailLooksDeliverable(value: unknown) {
+  const email = String(value ?? "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    && !email.endsWith("@internal.local")
+    && !email.endsWith("@example.com");
+}
+
 function uniqueEmails(values: unknown[]) {
   const emails = values
     .flatMap((value) => String(value ?? "").split(/[،,;\s]+/))
     .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.includes("@") && !value.endsWith("@internal.local") && !value.endsWith("@example.com"));
+    .filter(emailLooksDeliverable);
   return [...new Set(emails)];
 }
 
@@ -71,10 +78,14 @@ async function loadEmailContext(d1: D1Database, bugId: number) {
   if (!bug) return null;
 
   const [assigneesResult, attachmentsResult, latestFollowUp] = await Promise.all([
-    d1.prepare(`SELECT u.email
-      FROM bug_assignees ba JOIN users u ON u.id = ba.user_id
-      WHERE ba.bug_id = ? AND u.is_active = 1
-      ORDER BY ba.assigned_at, ba.id`).bind(bugId).all<Record<string, unknown>>(),
+    d1.prepare(`SELECT DISTINCT u.id, u.full_name, u.username, u.email
+      FROM users u
+      WHERE u.is_active = 1
+        AND (
+          u.id IN (SELECT user_id FROM bug_assignees WHERE bug_id = ?)
+          OR u.id = (SELECT owner_id FROM bugs WHERE id = ?)
+        )
+      ORDER BY u.full_name, u.id`).bind(bugId, bugId).all<Record<string, unknown>>(),
     d1.prepare(`SELECT id, bug_id, original_name, mime_type, size_bytes, created_at
       FROM bug_attachments WHERE bug_id = ? ORDER BY created_at, id`).bind(bugId).all<Record<string, unknown>>(),
     d1.prepare(`SELECT id, type, status, owner_name, result, scheduled_at, completed_at
@@ -82,7 +93,14 @@ async function loadEmailContext(d1: D1Database, bugId: number) {
       .bind(bugId).first<Record<string, unknown>>(),
   ]);
 
-  const assigneeEmails = uniqueEmails(assigneesResult.results.map((item) => item.email));
+  const assigneeDetails = assigneesResult.results.map((item) => ({
+    id: Number(item.id),
+    name: String(item.full_name ?? ""),
+    username: String(item.username ?? ""),
+    email: String(item.email ?? "").trim().toLowerCase(),
+    deliverable: emailLooksDeliverable(item.email),
+  }));
+  const assigneeEmails = uniqueEmails(assigneeDetails.filter((item) => item.deliverable).map((item) => item.email));
   const serviceEmails = uniqueEmails([bug.manager_email, bug.alert_email]);
   const recipients = uniqueEmails([...assigneeEmails, ...serviceEmails]);
 
@@ -90,10 +108,15 @@ async function loadEmailContext(d1: D1Database, bugId: number) {
     bug,
     recipients,
     assigneeEmails,
+    assigneeDetails,
     serviceEmails,
     attachments: attachmentsResult.results,
     latestFollowUp,
   };
+}
+
+function isSystemGeneratedEmail(row: Record<string, unknown>) {
+  return ["BUG_ASSIGNED", "P1_ALERT"].includes(String(row.template ?? ""));
 }
 
 export async function GET(
@@ -116,8 +139,9 @@ export async function GET(
     ]);
     if (!emailContext) return Response.json({ error: "خطا پیدا نشد." }, { status: 404 });
 
-    const history = (await d1.prepare("SELECT * FROM email_queue WHERE bug_id = ? ORDER BY created_at DESC LIMIT 20")
+    const allHistory = (await d1.prepare("SELECT * FROM email_queue WHERE bug_id = ? ORDER BY created_at DESC LIMIT 50")
       .bind(bugId).all<Record<string, unknown>>()).results;
+    const history = allHistory.filter((row) => !isSystemGeneratedEmail(row)).slice(0, 20);
     const recommended = recommendedSmartEmailTemplate(emailContext.bug, { historyCount: history.length });
     const requestedTemplate = new URL(request.url).searchParams.get("template");
     const templateKey = requestedTemplate === "AUTO"
@@ -137,6 +161,9 @@ export async function GET(
       },
     );
     const normalized = normalizeRecipientHeaders(draft.to, draft.cc);
+    const missingAssigneeEmails = emailContext.assigneeDetails
+      .filter((item) => !item.deliverable)
+      .map((item) => item.name || item.username || `User #${item.id}`);
 
     return Response.json({
       draft: {
@@ -148,6 +175,10 @@ export async function GET(
         assignees: emailContext.assigneeEmails,
         service: emailContext.serviceEmails,
         cc: normalized.cc,
+      },
+      recipientDetails: {
+        assignees: emailContext.assigneeDetails,
+        missingAssigneeEmails,
       },
       attachments: emailContext.attachments.map((item) => ({
         ...item,
