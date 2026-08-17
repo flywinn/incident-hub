@@ -86,6 +86,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   },
 };
 
+const LEGACY_FOLLOWUP_TYPES = ["بررسی فنی", "پیگیری با تیم سرویس", "درخواست نتیجه", "درخواست RCA", "تأیید رفع", "پیگیری مجدد"];
+
 function cleanString(value: unknown, fallback: string, maxLength = 160) {
   if (typeof value !== "string") return fallback;
   const cleaned = value.replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -101,6 +103,13 @@ function cleanNumber(value: unknown, fallback: number, min: number, max: number)
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.min(max, Math.max(min, Math.round(numeric)));
+}
+
+function sameStringSet(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const a = [...left].sort((x, y) => x.localeCompare(y, "fa"));
+  const b = [...right].sort((x, y) => x.localeCompare(y, "fa"));
+  return a.every((value, index) => value === b[index]);
 }
 
 export function normalizeAppSettings(input: unknown): AppSettings {
@@ -133,12 +142,19 @@ export function normalizeAppSettings(input: unknown): AppSettings {
   );
 
   const rawTypes = Array.isArray(followups.types) ? followups.types : DEFAULT_APP_SETTINGS.followups.types;
-  const types = [...new Set(rawTypes
+  const cleanedTypes = [...new Set(rawTypes
     .map((item) => cleanString(item, "", 80))
     .filter(Boolean))]
     .slice(0, 20);
-  const finalTypes = types.length ? types : DEFAULT_APP_SETTINGS.followups.types;
-  const defaultTypeCandidate = cleanString(followups.defaultType, DEFAULT_APP_SETTINGS.followups.defaultType, 80);
+  const legacyFollowupDefaults = sameStringSet(cleanedTypes, LEGACY_FOLLOWUP_TYPES)
+    && cleanString(followups.defaultType, "بررسی فنی", 80) === "بررسی فنی"
+    && cleanNumber(followups.defaultDelayHours, 24, 0, 720) === 24;
+  const finalTypes = legacyFollowupDefaults
+    ? DEFAULT_APP_SETTINGS.followups.types
+    : cleanedTypes.length ? cleanedTypes : DEFAULT_APP_SETTINGS.followups.types;
+  const defaultTypeCandidate = legacyFollowupDefaults
+    ? DEFAULT_APP_SETTINGS.followups.defaultType
+    : cleanString(followups.defaultType, DEFAULT_APP_SETTINGS.followups.defaultType, 80);
 
   return {
     brand: {
@@ -154,7 +170,9 @@ export function normalizeAppSettings(input: unknown): AppSettings {
     followups: {
       types: finalTypes,
       defaultType: finalTypes.includes(defaultTypeCandidate) ? defaultTypeCandidate : finalTypes[0],
-      defaultDelayHours: cleanNumber(followups.defaultDelayHours, DEFAULT_APP_SETTINGS.followups.defaultDelayHours, 0, 720),
+      defaultDelayHours: legacyFollowupDefaults
+        ? 0
+        : cleanNumber(followups.defaultDelayHours, DEFAULT_APP_SETTINGS.followups.defaultDelayHours, 0, 720),
       nextDelayHours: cleanNumber(followups.nextDelayHours, DEFAULT_APP_SETTINGS.followups.nextDelayHours, 1, 720),
       staleAfterHours: cleanNumber(followups.staleAfterHours, DEFAULT_APP_SETTINGS.followups.staleAfterHours, 1, 2160),
       requireResult: typeof followups.requireResult === "boolean" ? followups.requireResult : DEFAULT_APP_SETTINGS.followups.requireResult,
