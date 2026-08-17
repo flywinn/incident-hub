@@ -155,6 +155,15 @@
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
 }
 
+.assignee-save-state {
+  display: block;
+  margin: 5px 2px 0;
+  color: var(--muted);
+  font-size: .66rem;
+  line-height: 1.5;
+  opacity: .76;
+}
+
 /* v1.15 NOC technical input block */
 .noc-technical-fields {
   width: 100%;
