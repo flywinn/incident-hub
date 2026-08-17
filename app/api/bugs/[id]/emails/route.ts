@@ -8,6 +8,7 @@ import {
   toSmartEmailTemplate,
 } from "../../../../../lib/email-intelligence";
 import { MAX_EMAIL_INLINE_IMAGE_BYTES } from "../../../../../lib/incident-images";
+import { DEFAULT_APP_SETTINGS, normalizeAppSettings } from "../../../../../lib/settings";
 
 function safeHeaderText(value: unknown, max: number) {
   return cleanText(value, max).replace(/[\r\n]+/g, " ").trim();
@@ -19,6 +20,13 @@ function uniqueEmails(values: unknown[]) {
     .map((value) => value.trim().toLowerCase())
     .filter((value) => value.includes("@") && !value.endsWith("@internal.local") && !value.endsWith("@example.com"));
   return [...new Set(emails)];
+}
+
+function normalizeRecipientHeaders(toValue: unknown, ccValue: unknown) {
+  const to = uniqueEmails([toValue]);
+  const toSet = new Set(to);
+  const cc = uniqueEmails([ccValue]).filter((email) => !toSet.has(email));
+  return { to, cc };
 }
 
 type EmailImageMode = "ATTACH" | "INLINE";
@@ -50,6 +58,12 @@ function parseImageSelections(payload: Record<string, unknown>): EmailImageSelec
   return [...unique.entries()].map(([id, mode]) => ({ id, mode }));
 }
 
+async function loadMainSettings(d1: D1Database) {
+  const row = await d1.prepare("SELECT value_json FROM app_settings WHERE setting_key = 'main'").first<{ value_json: string }>();
+  if (!row?.value_json) return DEFAULT_APP_SETTINGS;
+  try { return normalizeAppSettings(JSON.parse(row.value_json)); } catch { return DEFAULT_APP_SETTINGS; }
+}
+
 async function loadEmailContext(d1: D1Database, bugId: number) {
   const bug = await d1.prepare(`SELECT b.*, s.manager_email, s.alert_email
     FROM bugs b LEFT JOIN services s ON s.id = b.service_id
@@ -59,7 +73,8 @@ async function loadEmailContext(d1: D1Database, bugId: number) {
   const [assigneesResult, attachmentsResult, latestFollowUp] = await Promise.all([
     d1.prepare(`SELECT u.email
       FROM bug_assignees ba JOIN users u ON u.id = ba.user_id
-      WHERE ba.bug_id = ? AND u.is_active = 1`).bind(bugId).all<Record<string, unknown>>(),
+      WHERE ba.bug_id = ? AND u.is_active = 1
+      ORDER BY ba.assigned_at, ba.id`).bind(bugId).all<Record<string, unknown>>(),
     d1.prepare(`SELECT id, bug_id, original_name, mime_type, size_bytes, created_at
       FROM bug_attachments WHERE bug_id = ? ORDER BY created_at, id`).bind(bugId).all<Record<string, unknown>>(),
     d1.prepare(`SELECT id, type, status, owner_name, result, scheduled_at, completed_at
@@ -67,15 +82,15 @@ async function loadEmailContext(d1: D1Database, bugId: number) {
       .bind(bugId).first<Record<string, unknown>>(),
   ]);
 
-  const recipients = uniqueEmails([
-    bug.manager_email,
-    bug.alert_email,
-    ...assigneesResult.results.map((item) => item.email),
-  ]);
+  const assigneeEmails = uniqueEmails(assigneesResult.results.map((item) => item.email));
+  const serviceEmails = uniqueEmails([bug.manager_email, bug.alert_email]);
+  const recipients = uniqueEmails([...assigneeEmails, ...serviceEmails]);
 
   return {
     bug,
     recipients,
+    assigneeEmails,
+    serviceEmails,
     attachments: attachmentsResult.results,
     latestFollowUp,
   };
@@ -95,7 +110,10 @@ export async function GET(
     }
 
     const d1 = await ensureDatabase();
-    const emailContext = await loadEmailContext(d1, bugId);
+    const [emailContext, settings] = await Promise.all([
+      loadEmailContext(d1, bugId),
+      loadMainSettings(d1),
+    ]);
     if (!emailContext) return Response.json({ error: "خطا پیدا نشد." }, { status: 404 });
 
     const history = (await d1.prepare("SELECT * FROM email_queue WHERE bug_id = ? ORDER BY created_at DESC LIMIT 20")
@@ -106,15 +124,31 @@ export async function GET(
       ? recommended
       : toSmartEmailTemplate(requestedTemplate, recommended);
 
+    const draft = buildSmartEmailDraft(
+      emailContext.bug,
+      emailContext.recipients,
+      templateKey,
+      emailContext.attachments,
+      emailContext.latestFollowUp,
+      {
+        historyCount: history.length,
+        defaultCc: settings.email.defaultCc,
+        lastEmailAt: history[0]?.created_at,
+      },
+    );
+    const normalized = normalizeRecipientHeaders(draft.to, draft.cc);
+
     return Response.json({
-      draft: buildSmartEmailDraft(
-        emailContext.bug,
-        emailContext.recipients,
-        templateKey,
-        emailContext.attachments,
-        emailContext.latestFollowUp,
-        { historyCount: history.length },
-      ),
+      draft: {
+        ...draft,
+        to: normalized.to.join(", "),
+        cc: normalized.cc.join(", "),
+      },
+      recipientDefaults: {
+        assignees: emailContext.assigneeEmails,
+        service: emailContext.serviceEmails,
+        cc: normalized.cc,
+      },
       attachments: emailContext.attachments.map((item) => ({
         ...item,
         url: `/api/bug-attachments/${item.id}`,
@@ -151,14 +185,17 @@ export async function POST(
 
     const payload = (await request.json()) as Record<string, unknown>;
     const action = payload.action === "QUEUE" ? "QUEUE" : "DRAFT";
-    const recipient = safeHeaderText(payload.to, 1000);
-    const cc = safeHeaderText(payload.cc, 1000);
+    const rawRecipient = safeHeaderText(payload.to, 1000);
+    const rawCc = safeHeaderText(payload.cc, 1000);
+    const normalizedHeaders = normalizeRecipientHeaders(rawRecipient, rawCc);
+    const recipient = normalizedHeaders.to.join(", ");
+    const cc = normalizedHeaders.cc.join(", ");
     const subject = safeHeaderText(payload.subject, 300);
     const body = cleanText(payload.body, 12000);
     const template = toSmartEmailTemplate(payload.templateKey, "TECHNICAL_INCIDENT");
     const imageSelections = parseImageSelections(payload);
 
-    if (!subject || !body || (action === "QUEUE" && !uniqueEmails([recipient]).length)) {
+    if (!subject || !body || (action === "QUEUE" && !normalizedHeaders.to.length)) {
       return Response.json({ error: "گیرنده، عنوان و متن ایمیل برای ارسال الزامی هستند." }, { status: 400 });
     }
 
@@ -203,7 +240,7 @@ export async function POST(
         action === "DRAFT" ? "EMAIL_DRAFTED" : "EMAIL_QUEUED",
         action === "DRAFT" ? "پیش‌نویس ایمیل ذخیره شد" : "ایمیل در صف ارسال ثبت شد",
         actor,
-        JSON.stringify({ emailId, recipient, subject, template, imageSelections: imageAudit }),
+        JSON.stringify({ emailId, recipient, cc, subject, template, imageSelections: imageAudit }),
       ),
       d1.prepare("INSERT INTO audit_logs (entity_type, entity_id, action, actor, after_value) VALUES ('EMAIL', ?, ?, ?, ?)").bind(
         String(emailId),
@@ -225,8 +262,8 @@ export async function POST(
               : {}),
           },
           body: JSON.stringify({
-            to: uniqueEmails([recipient]),
-            cc: uniqueEmails([cc]),
+            to: normalizedHeaders.to,
+            cc: normalizedHeaders.cc,
             subject,
             body,
             bugCode: emailContext.bug.bug_code,
@@ -245,7 +282,7 @@ export async function POST(
         email = await d1.prepare("UPDATE email_queue SET status = 'SENT', sent_at = CURRENT_TIMESTAMP, attempts = attempts + 1 WHERE id = ? RETURNING *")
           .bind(emailId).first<Record<string, unknown>>();
         await d1.prepare("INSERT INTO bug_events (bug_id, event_type, summary, actor, metadata) VALUES (?, 'EMAIL_SENT', ?, ?, ?)")
-          .bind(bugId, "ایمیل از کانال متصل‌شده ارسال شد", actor, JSON.stringify({ emailId, recipient })).run();
+          .bind(bugId, "ایمیل از کانال متصل‌شده ارسال شد", actor, JSON.stringify({ emailId, recipient, cc })).run();
         deliveryMessage = "ایمیل با موفقیت ارسال شد.";
       } catch (deliveryError) {
         const message = deliveryError instanceof Error ? deliveryError.message : "خطای کانال ارسال";
