@@ -177,7 +177,7 @@ export function extractServers(bug: Record<string, unknown>) {
   const direct = directTechnicalValues(bug, ["server", "serverName", "server_name", "node", "host", "hostname"]);
   const labeled = labeledValues(text, ["Server", "ServerName", "Server Name", "Host", "Hostname", "Node"]);
   const patterns = [
-    /\bHost[A-Za-z0-9_.-]*\b/gi,
+    /\bHost[A-Za-z0-9_.-]+\b/gi,
     /\bAPI\d+[A-Za-z0-9_-]*\b/g,
     /\b(?:WEB|SRV|APP|NODE)[-_]?[A-Za-z0-9]*\d+[A-Za-z0-9_-]*\b/gi,
     /\bF\d+[A-Za-z]+[_-]\d+[A-Za-z0-9_-]*\b/g,
