@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/apply-v115-ui-fixes.mjs
       - scripts/apply-v115-engine-fixes.mjs
+      - scripts/apply-v115-existing-noc-fields.mjs
       - .github/workflows/v115-ui-patch.yml
   workflow_dispatch:
 
@@ -44,6 +45,9 @@ jobs:
           } else {
             node scripts/apply-v115-ui-fixes.mjs .
           }
+
+      - name: Apply existing incident NOC fields
+        run: node scripts/apply-v115-existing-noc-fields.mjs .
 
       - name: Lint
         run: npm run lint
