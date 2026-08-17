@@ -1,0 +1,128 @@
+/* IncidentHub v1.15 — NOC Workflow refinements */
+
+.assignee-picker {
+  gap: 8px !important;
+  padding: 10px !important;
+}
+
+.assignee-picker-head {
+  gap: 8px !important;
+  align-items: center !important;
+}
+
+.assignee-picker-head > div {
+  gap: 2px !important;
+}
+
+.assignee-picker-head strong {
+  font-size: .9rem !important;
+}
+
+.assignee-picker-head span,
+.assignee-picker-head small {
+  font-size: .72rem !important;
+}
+
+.assignee-picker-head input {
+  min-height: 34px !important;
+  height: 34px !important;
+  padding: 6px 10px !important;
+  font-size: .78rem !important;
+}
+
+.selected-assignees {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+.selected-assignees > button {
+  min-height: 30px !important;
+  height: 30px !important;
+  padding: 4px 8px !important;
+  border-radius: 9px !important;
+  gap: 6px !important;
+  font-size: .76rem !important;
+}
+
+.selected-assignees > button b {
+  font-size: .68rem !important;
+  font-weight: 600 !important;
+  opacity: .75;
+}
+
+.assignee-options {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+  gap: 6px !important;
+  max-height: 220px !important;
+  overflow: auto !important;
+}
+
+.assignee-options > button {
+  min-height: 40px !important;
+  height: 40px !important;
+  padding: 5px 8px !important;
+  border-radius: 9px !important;
+  gap: 7px !important;
+}
+
+.assignee-options > button .mini-avatar {
+  width: 27px !important;
+  height: 27px !important;
+  min-width: 27px !important;
+  font-size: .66rem !important;
+}
+
+.assignee-options > button span {
+  min-width: 0 !important;
+}
+
+.assignee-options > button strong {
+  font-size: .76rem !important;
+  line-height: 1.15 !important;
+}
+
+.assignee-options > button small {
+  font-size: .64rem !important;
+  line-height: 1.1 !important;
+  opacity: .68 !important;
+}
+
+.assignee-options > button > i {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  border-radius: 7px !important;
+  font-size: .75rem !important;
+}
+
+.assignee-picker.compact .assignee-options {
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)) !important;
+}
+
+.followup-create-form input[type="datetime-local"] {
+  font-variant-numeric: tabular-nums;
+}
+
+.smart-email-v12 .email-fields input,
+.smart-email-v12 .email-fields textarea,
+.smart-email-v12 .email-fields select {
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.smart-email-v12 .email-fields input:focus,
+.smart-email-v12 .email-fields textarea:focus,
+.smart-email-v12 .email-fields select:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2dd4bf) 15%, transparent) !important;
+}
+
+@media (max-width: 760px) {
+  .assignee-picker-head {
+    align-items: stretch !important;
+  }
+  .assignee-options {
+    grid-template-columns: 1fr !important;
+    max-height: 260px !important;
+  }
+}
