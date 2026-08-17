@@ -1,0 +1,62 @@
+name: v1.15 UI Patch
+
+on:
+  push:
+    branches:
+      - feature/noc-workflow-v1.15
+    paths:
+      - scripts/apply-v115-ui-fixes.mjs
+      - .github/workflows/v115-ui-patch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-ui-fixes:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout v1.15 branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feature/noc-workflow-v1.15
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply UI fixes
+        shell: pwsh
+        run: |
+          if (Select-String -LiteralPath 'app/incident-hub.tsx' -Pattern 'assignee-save-state' -Quiet) {
+            Write-Host '[OK] UI patch already applied.'
+          } else {
+            node scripts/apply-v115-ui-fixes.mjs .
+          }
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+      - name: Commit generated source changes
+        shell: pwsh
+        run: |
+          $changes = git status --porcelain -- app/incident-hub.tsx
+          if (-not $changes) {
+            Write-Host '[OK] No generated source changes to commit.'
+            exit 0
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/incident-hub.tsx
+          git commit -m 'Apply validated v1.15 UI workflow fixes'
+          git push origin HEAD:feature/noc-workflow-v1.15
