@@ -5,6 +5,7 @@ const root = process.argv[2] ? path.resolve(process.argv[2]) : process.cwd();
 const file = path.join(root, "app", "incident-hub.tsx");
 const backup = `${file}.v115-before-ui-fixes.bak`;
 let source = await readFile(file, "utf8");
+source = source.replace(/\r\n/g, "\n");
 
 function replaceOnce(label, before, after) {
   const first = source.indexOf(before);
