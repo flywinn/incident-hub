@@ -67,11 +67,14 @@ test("email route builds defaults from assignees and removes To/CC duplicates", 
   assert.match(route, /lastEmailAt: history\[0\]\?\.created_at/);
 });
 
-test("compact assignee picker overrides are installed", async () => {
+test("compact assignee picker stays inside the drawer and uses compact rows", async () => {
   const css = await read("app/v115.css");
   const layout = await read("app/layout.tsx");
   assert.match(css, /\.assignee-options > button/);
-  assert.match(css, /height: 40px/);
+  assert.match(css, /height: 38px/);
+  assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /overflow-x: hidden/);
+  assert.match(css, /text-overflow: ellipsis/);
   assert.match(css, /\.selected-assignees > button/);
   assert.match(layout, /import "\.\/v115\.css"/);
 });
