@@ -2,6 +2,13 @@ import { ensureDatabase } from "../../../../../db/ensure";
 import { apiError, cleanText } from "../../../../../lib/api";
 import { authorizeRequest } from "../../../../../lib/auth";
 
+function parseFollowupDate(value: unknown) {
+  const text = cleanText(value, 40);
+  if (!text) return null;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -12,15 +19,16 @@ export async function POST(
     const { id } = await context.params;
     const bugId = Number(id);
     const payload = (await request.json()) as Record<string, unknown>;
-    const scheduledAt = cleanText(payload.scheduledAt, 40);
-    const type = cleanText(payload.type, 80) || "بررسی فنی";
+    const scheduledDate = parseFollowupDate(payload.scheduledAt);
+    const type = cleanText(payload.type, 80) || "پیگیری امروز";
     const ownerName = cleanText(payload.ownerName, 120);
     const nextAction = cleanText(payload.nextAction, 800);
     const actor = auth.user.fullName;
 
-    if (!scheduledAt || !ownerName) {
-      return Response.json({ error: "زمان و مسئول پیگیری الزامی است." }, { status: 400 });
+    if (!scheduledDate || !ownerName) {
+      return Response.json({ error: "زمان معتبر و مسئول پیگیری الزامی است." }, { status: 400 });
     }
+    const scheduledAt = scheduledDate.toISOString();
 
     const d1 = await ensureDatabase();
     const bug = await d1.prepare("SELECT * FROM bugs WHERE id = ?").bind(bugId).first<Record<string, unknown>>();
@@ -40,9 +48,9 @@ export async function POST(
       d1.prepare("UPDATE bugs SET next_follow_up_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(scheduledAt, bugId),
       d1.prepare("INSERT INTO bug_events (bug_id, event_type, summary, actor, metadata) VALUES (?, 'FOLLOW_UP_SCHEDULED', ?, ?, ?)").bind(
         bugId,
-        `پیگیری «${type}» برای ${ownerName} برنامه‌ریزی شد`,
+        `پیگیری «${type}» برای ${ownerName} ثبت شد`,
         actor,
-        JSON.stringify({ scheduledAt }),
+        JSON.stringify({ scheduledAt, recordedAt: new Date().toISOString() }),
       ),
       d1.prepare("INSERT INTO audit_logs (entity_type, entity_id, action, actor, after_value) VALUES ('FOLLOW_UP', ?, 'CREATE', ?, ?)").bind(
         String((followUp as Record<string, unknown>).id),
