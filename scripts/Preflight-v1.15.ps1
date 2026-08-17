@@ -24,6 +24,13 @@ function Get-EnvValue([string]$Path,[string]$Key) {
     return (($line -split '=',2)[1]).Trim().Trim('"').Trim("'")
 }
 
+function Get-OptionalProperty($Object,[string]$Name,[string]$Fallback="") {
+    if ($null -eq $Object) { return $Fallback }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return $Fallback }
+    return [string]$property.Value
+}
+
 function Get-PortSnapshot([int]$Port) {
     $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $listener) {
@@ -109,8 +116,9 @@ if ($task) {
     Write-Host "Task state: $($task.State)"
     $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($taskInfo) {
+        $resultValue = [uint32]$taskInfo.LastTaskResult
         Write-Host "Last run : $($taskInfo.LastRunTime)"
-        Write-Host "Result   : $($taskInfo.LastTaskResult)"
+        Write-Host ("Result   : {0} (0x{1:X8})" -f $taskInfo.LastTaskResult,$resultValue)
         Write-Host "Next run : $($taskInfo.NextRunTime)"
     }
     ($task.Actions | Select-Object Execute,Arguments,WorkingDirectory) | Format-List
@@ -141,11 +149,25 @@ Section "Verdict"
 $localHeadForVerdict = ""
 Push-Location $ProjectPath
 try { $localHeadForVerdict = (& git rev-parse HEAD).Trim() } finally { Pop-Location }
-$prodVersion = [string]($prodHealth.version)
-$devVersion = [string]($devHealth.version)
-Write-Host "Expected source branch : $Branch"
-Write-Host "Local source commit    : $localHeadForVerdict"
-Write-Host "Production code version: $prodVersion"
-Write-Host "Development code version: $devVersion"
+$prodStatus = Get-OptionalProperty $prodHealth "status" "unknown"
+$devStatus = Get-OptionalProperty $devHealth "status" "unknown"
+$prodVersion = Get-OptionalProperty $prodHealth "version" "unavailable"
+$devVersion = Get-OptionalProperty $devHealth "version" "unavailable"
+$prodCommit = Get-OptionalProperty $prodHealth "commit" "unavailable"
+$devCommit = Get-OptionalProperty $devHealth "commit" "unavailable"
+Write-Host "Expected source branch   : $Branch"
+Write-Host "Local source commit      : $localHeadForVerdict"
+Write-Host "Production health        : $prodStatus"
+Write-Host "Production code version  : $prodVersion"
+Write-Host "Production release commit: $prodCommit"
+Write-Host "Development health       : $devStatus"
+Write-Host "Development code version : $devVersion"
+Write-Host "Development release commit: $devCommit"
+if (-not $prodRuntime.Listening) {
+    Write-Host "[WARN] Production port $ProdPort is not listening." -ForegroundColor Yellow
+}
+if ($status.Count) {
+    Write-Host "[WARN] Working tree is dirty; preserve or review local changes before switching branches." -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "No changes were made." -ForegroundColor Green
