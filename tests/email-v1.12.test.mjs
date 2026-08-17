@@ -51,8 +51,7 @@ test("technical incidents are informational and preserve useful NOC context", as
   });
   assert.match(draft.subject, /FLT-260804-01/);
   assert.match(draft.subject, /503/);
-  assert.match(draft.body, /جهت اطلاع/);
-  assert.match(draft.body, /از سمت چری/);
+  assert.match(draft.body, /به اطلاع می‌رساند/);
   assert.match(draft.body, /\/api\/V1\/Flight\/AllPassengerETicket/);
   assert.match(draft.body, /LB: LB-FL-C1/);
   assert.match(draft.body, /Backend: bk_TravelIranianApi/);
@@ -65,6 +64,47 @@ test("technical incidents are informational and preserve useful NOC context", as
   assert.doesNotMatch(draft.body, /خواهشمند است/);
   assert.doesNotMatch(draft.body, /علت فنی/);
   assert.doesNotMatch(draft.body, /RCA/i);
+});
+
+test("endpoint-led technical mail matches NOC wording and recognizes HostW", async () => {
+  const engine = await loadEngine();
+  const bug = {
+    bug_code: "GLOBAL-260817-01",
+    title: "خطای 500 PermanentApiToken",
+    description: "HTTP: 500\nEndpoint: /api/V1/global/PermanentApiToken\nLB: LB-FL-O-1\nServer: HostW",
+    service_label: "Global_main",
+    status: "NEW",
+    priority: "P2",
+    first_seen_at: "2026-08-17T10:30:00.000Z",
+    last_seen_at: "2026-08-17T10:30:00.000Z",
+  };
+  assert.deepEqual([...engine.extractServers(bug)], ["HostW"]);
+  const recommended = engine.recommendedSmartEmailTemplate(bug, { historyCount: 0 });
+  assert.equal(recommended, "TECHNICAL_INCIDENT");
+  const draft = engine.buildSmartEmailDraft(bug, ["owner@flytoday.ir"], recommended, [], null, {
+    historyCount: 0,
+    defaultCc: "noc@flytoday.ir",
+  });
+  assert.match(draft.body, /به اطلاع می‌رساند خطای 500 در مسیر \/api\/V1\/global\/PermanentApiToken مشاهده شده است\./);
+  assert.match(draft.body, /LB: LB-FL-O-1/);
+  assert.match(draft.body, /Server: HostW/);
+  assert.doesNotMatch(draft.body, /خواهشمند|علت|اقدام انجام‌شده|RCA/i);
+});
+
+test("labeled backend/server fields are extracted even without bk_ prefix", async () => {
+  const engine = await loadEngine();
+  const bug = {
+    bug_code: "BUS-260817-02",
+    title: "خطای 502",
+    description: "Endpoint: /api/V1/Bus/Search\nBackend: TravelGateway\nHost: BusHost01\nLB: LB-BUS-1",
+    service_label: "Bus",
+    status: "NEW",
+  };
+  assert.deepEqual([...engine.extractBackends(bug)], ["TravelGateway"]);
+  assert.deepEqual([...engine.extractServers(bug)], ["BusHost01"]);
+  const draft = engine.buildSmartEmailDraft(bug, [], "TECHNICAL_INCIDENT", [], null, { historyCount: 0 });
+  assert.match(draft.body, /Backend: TravelGateway/);
+  assert.match(draft.body, /Server: BusHost01/);
 });
 
 test("noise endpoints such as favicon and pwa manifest are excluded", async () => {
@@ -158,6 +198,16 @@ test("resolution email announces recovery without default RCA request", async ()
   const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, { historyCount: 2 });
   assert.match(draft.body, /رفع شده است/);
   assert.doesNotMatch(draft.body, /RCA|علت ریشه‌ای|خواهشمند است/);
+});
+
+test("email route derives recipients from assignees and ignores system assignment history", async () => {
+  const route = await read("app/api/bugs/[id]/emails/route.ts");
+  assert.match(route, /u\.id IN \(SELECT user_id FROM bug_assignees WHERE bug_id = \?\)/);
+  assert.match(route, /OR u\.id = \(SELECT owner_id FROM bugs WHERE id = \?\)/);
+  assert.match(route, /missingAssigneeEmails/);
+  assert.match(route, /BUG_ASSIGNED/);
+  assert.match(route, /P1_ALERT/);
+  assert.match(route, /allHistory\.filter\(\(row\) => !isSystemGeneratedEmail\(row\)\)/);
 });
 
 test("EML generator supports real attachments plus optional inline images", async () => {
