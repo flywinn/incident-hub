@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "@fontsource-variable/vazirmatn";
 import "./globals.css";
+import "./v115.css";
 
 export const metadata: Metadata = {
   title: "دیدبان | مدیریت خطا و پیگیری",
