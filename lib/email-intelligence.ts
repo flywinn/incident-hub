@@ -326,7 +326,7 @@ export function recommendedSmartEmailTemplate(
   const errorCode = extractErrorCode(bug);
 
   if (["RESOLVED", "CLOSED"].includes(status)) return "RESOLUTION_RCA";
-  if (historyCount > 0 && ["IN_PROGRESS", "WAITING", "REOPENED", "NEW"].includes(status)) return "FOLLOW_UP";
+  if (historyCount > 0 && ["IN_PROGRESS", "WAITING", "REOPENED"].includes(status)) return "FOLLOW_UP";
   if (hasInternalNoticeSignals(text)) return "INTERNAL_NOTICE";
   if (errorCode || endpoints.length || extractComponents(bug).length) return "TECHNICAL_INCIDENT";
   if (hasFunctionalSignals(text)) return "FUNCTIONAL_ISSUE";

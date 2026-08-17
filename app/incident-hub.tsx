@@ -2505,6 +2505,64 @@ function SettingsPage({
   );
 }
 
+type NocTechnicalFields = {
+  httpStatus: string;
+  endpoint: string;
+  loadBalancer: string;
+  backend: string;
+  server: string;
+  errorCount: string;
+  errorRate: string;
+  requestCount: string;
+};
+
+const emptyNocTechnicalFields: NocTechnicalFields = {
+  httpStatus: "",
+  endpoint: "",
+  loadBalancer: "",
+  backend: "",
+  server: "",
+  errorCount: "",
+  errorRate: "",
+  requestCount: "",
+};
+
+function splitNocDescription(value: string) {
+  const fields: NocTechnicalFields = { ...emptyNocTechnicalFields };
+  const narrative: string[] = [];
+  const labelMap: Record<string, keyof NocTechnicalFields> = {
+    http: "httpStatus",
+    endpoint: "endpoint",
+    lb: "loadBalancer",
+    backend: "backend",
+    server: "server",
+    "error count": "errorCount",
+    "error rate": "errorRate",
+    requests: "requestCount",
+  };
+  for (const line of String(value ?? "").split(/\r?\n/)) {
+    const match = line.match(/^\s*(HTTP|Endpoint|LB|Backend|Server|Error Count|Error Rate|Requests)\s*:\s*(.*?)\s*$/i);
+    if (!match) { narrative.push(line); continue; }
+    const field = labelMap[match[1].toLowerCase()];
+    if (field) fields[field] = match[2];
+  }
+  return { description: narrative.join("\n").replace(/\n{3,}/g, "\n\n").trim(), fields };
+}
+
+function composeNocDescription(description: string, fields: NocTechnicalFields) {
+  const lines = [
+    ["HTTP", fields.httpStatus],
+    ["Endpoint", fields.endpoint],
+    ["LB", fields.loadBalancer],
+    ["Backend", fields.backend],
+    ["Server", fields.server],
+    ["Error Count", fields.errorCount],
+    ["Error Rate", fields.errorRate],
+    ["Requests", fields.requestCount],
+  ].filter(([, value]) => String(value).trim()).map(([label, value]) => `${label}: ${String(value).trim()}`);
+  return [description.trim(), lines.join("\n")].filter(Boolean).join("\n\n");
+}
+
 function BugDrawer({
   bug,
   services,
@@ -2538,8 +2596,10 @@ function BugDrawer({
   const [ownerIds, setOwnerIds] = useState<string[]>(
     assignees.length ? assignees.map((item) => String(item.user_id)) : bug.owner_id ? [String(bug.owner_id)] : [],
   );
+  const initialNocContext = useMemo(() => splitNocDescription(String(bug.description ?? "")), [bug.description]);
   const [title, setTitle] = useState(String(bug.title));
-  const [description, setDescription] = useState(String(bug.description ?? ""));
+  const [description, setDescription] = useState(initialNocContext.description);
+  const [nocFields, setNocFields] = useState<NocTechnicalFields>(initialNocContext.fields);
   const [serviceId, setServiceId] = useState(bug.service_id ? String(bug.service_id) : "");
   const [firstSeenAt, setFirstSeenAt] = useState(toDateTimeLocal(bug.first_seen_at));
   const [lastSeenAt, setLastSeenAt] = useState(toDateTimeLocal(bug.last_seen_at));
@@ -2598,7 +2658,7 @@ function BugDrawer({
         method: "PATCH",
         body: JSON.stringify({
           title,
-          description,
+          description: composeNocDescription(description, nocFields),
           status,
           priority,
           serviceId: serviceId ? Number(serviceId) : null,
@@ -2662,6 +2722,17 @@ function BugDrawer({
                   <label><span>سرویس</span><select value={serviceId} disabled={!canEdit} onChange={(event) => setServiceId(event.target.value)}><option value="">بدون سرویس</option>{services.map((service) => <option key={String(service.id)} value={String(service.id)}>{String(service.path)}</option>)}</select></label>
                   <label><span>منبع</span><input value={sourceLabels[String(bug.source)] ?? String(bug.source)} disabled /></label>
                   <label className="full"><span>شرح و شواهد</span><textarea rows={5} value={description} disabled={!canEdit} onChange={(event) => setDescription(event.target.value)} /></label>
+                  <div className="full noc-technical-fields">
+                    <header><strong>اطلاعات فنی NOC</strong><span>برای ایمیل و پیگیری از اطلاعات واقعی ELK/Kibana استفاده می‌شود.</span></header>
+                    <label><span>HTTP Status</span><input value={nocFields.httpStatus} disabled={!canEdit} inputMode="numeric" placeholder="500 / 502 / 503" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, httpStatus: event.target.value }))} /></label>
+                    <label><span>Endpoint</span><input value={nocFields.endpoint} disabled={!canEdit} placeholder="/api/V1/..." dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, endpoint: event.target.value }))} /></label>
+                    <label><span>Load Balancer (LB)</span><input value={nocFields.loadBalancer} disabled={!canEdit} placeholder="LB-FL-O-1" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, loadBalancer: event.target.value }))} /></label>
+                    <label><span>Backend (BK)</span><input value={nocFields.backend} disabled={!canEdit} placeholder="bk_TravelIranianApi" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, backend: event.target.value }))} /></label>
+                    <label><span>Server / Host</span><input value={nocFields.server} disabled={!canEdit} placeholder="HostW / API1AF" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, server: event.target.value }))} /></label>
+                    <label><span>Error Count</span><input value={nocFields.errorCount} disabled={!canEdit} inputMode="numeric" placeholder="174" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, errorCount: event.target.value }))} /></label>
+                    <label><span>Error Rate %</span><input value={nocFields.errorRate} disabled={!canEdit} inputMode="decimal" placeholder="0.53" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, errorRate: event.target.value }))} /></label>
+                    <label><span>Requests</span><input value={nocFields.requestCount} disabled={!canEdit} inputMode="numeric" placeholder="11119" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, requestCount: event.target.value }))} /></label>
+                  </div>
                 </div>
                 {Boolean(bug.dashboard_url) && <a className="external-link" href={String(bug.dashboard_url)} target="_blank" rel="noreferrer">باز کردن داشبورد Kibana ↗</a>}
               </section>
