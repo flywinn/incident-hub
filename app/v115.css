@@ -1,16 +1,26 @@
 /* IncidentHub v1.15 — NOC Workflow refinements */
 
 .assignee-picker {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
   gap: 8px !important;
   padding: 10px !important;
 }
 
 .assignee-picker-head {
+  width: 100% !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, .72fr) !important;
   gap: 8px !important;
   align-items: center !important;
 }
 
 .assignee-picker-head > div {
+  min-width: 0 !important;
   gap: 2px !important;
 }
 
@@ -24,81 +34,163 @@
 }
 
 .assignee-picker-head input {
+  width: 100% !important;
+  min-width: 0 !important;
   min-height: 34px !important;
   height: 34px !important;
   padding: 6px 10px !important;
   font-size: .78rem !important;
+  box-sizing: border-box !important;
 }
 
 .selected-assignees {
+  width: 100% !important;
+  min-width: 0 !important;
   display: flex !important;
   flex-wrap: wrap !important;
   gap: 6px !important;
 }
 
 .selected-assignees > button {
-  min-height: 30px !important;
-  height: 30px !important;
-  padding: 4px 8px !important;
-  border-radius: 9px !important;
-  gap: 6px !important;
-  font-size: .76rem !important;
+  width: auto !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 28px !important;
+  height: 28px !important;
+  padding: 3px 8px !important;
+  border-radius: 8px !important;
+  gap: 5px !important;
+  font-size: .73rem !important;
+  box-sizing: border-box !important;
+}
+
+.selected-assignees > button span {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  unicode-bidi: plaintext !important;
 }
 
 .selected-assignees > button b {
-  font-size: .68rem !important;
+  flex: 0 0 auto !important;
+  font-size: .64rem !important;
   font-weight: 600 !important;
-  opacity: .75;
+  opacity: .72;
 }
 
 .assignee-options {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
   display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   gap: 6px !important;
-  max-height: 220px !important;
-  overflow: auto !important;
+  max-height: 230px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
 }
 
 .assignee-options > button {
-  min-height: 40px !important;
-  height: 40px !important;
-  padding: 5px 8px !important;
-  border-radius: 9px !important;
-  gap: 7px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 38px !important;
+  height: 38px !important;
+  padding: 4px 7px !important;
+  border-radius: 8px !important;
+  gap: 6px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
 }
 
 .assignee-options > button .mini-avatar {
-  width: 27px !important;
-  height: 27px !important;
-  min-width: 27px !important;
-  font-size: .66rem !important;
+  flex: 0 0 25px !important;
+  width: 25px !important;
+  height: 25px !important;
+  min-width: 25px !important;
+  font-size: .62rem !important;
 }
 
-.assignee-options > button span {
+.assignee-options > button > span {
+  flex: 1 1 auto !important;
   min-width: 0 !important;
+  overflow: hidden !important;
+  text-align: start !important;
+}
+
+.assignee-options > button strong,
+.assignee-options > button small {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  unicode-bidi: plaintext !important;
 }
 
 .assignee-options > button strong {
-  font-size: .76rem !important;
+  font-size: .73rem !important;
   line-height: 1.15 !important;
 }
 
 .assignee-options > button small {
-  font-size: .64rem !important;
-  line-height: 1.1 !important;
-  opacity: .68 !important;
+  margin-top: 2px !important;
+  font-size: .61rem !important;
+  line-height: 1.05 !important;
+  opacity: .66 !important;
 }
 
 .assignee-options > button > i {
-  width: 22px !important;
-  height: 22px !important;
-  min-width: 22px !important;
-  border-radius: 7px !important;
-  font-size: .75rem !important;
+  flex: 0 0 20px !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  border-radius: 6px !important;
+  font-size: .7rem !important;
 }
 
 .assignee-picker.compact .assignee-options {
-  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)) !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+/* v1.15 NOC technical input block */
+.noc-technical-fields {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border, rgba(148, 163, 184, .18));
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.noc-technical-fields > header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.noc-technical-fields > header strong {
+  font-size: .86rem;
+}
+
+.noc-technical-fields > header span {
+  font-size: .68rem;
+  opacity: .65;
+}
+
+.noc-technical-fields label {
+  min-width: 0;
+}
+
+.noc-technical-fields .full {
+  grid-column: 1 / -1;
 }
 
 .followup-create-form input[type="datetime-local"] {
@@ -117,12 +209,38 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2dd4bf) 15%, transparent) !important;
 }
 
+.email-recipient-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -2px;
+  margin-bottom: 2px;
+}
+
+.email-recipient-tools button {
+  min-height: 30px;
+  padding: 4px 9px;
+  font-size: .7rem;
+}
+
+.email-recipient-warning {
+  font-size: .68rem;
+  opacity: .8;
+}
+
 @media (max-width: 760px) {
   .assignee-picker-head {
+    grid-template-columns: 1fr !important;
     align-items: stretch !important;
   }
-  .assignee-options {
+
+  .assignee-options,
+  .assignee-picker.compact .assignee-options,
+  .noc-technical-fields {
     grid-template-columns: 1fr !important;
+  }
+
+  .assignee-options {
     max-height: 260px !important;
   }
 }
