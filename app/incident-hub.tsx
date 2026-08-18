@@ -1849,6 +1849,8 @@ function FollowupsPage({
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [ownerFilter, setOwnerFilter] = useState("ALL");
+  const [queueScope, setQueueScope] = useState<"ALL" | "OPEN" | "CLOSED">("ALL");
+  const [detail, setDetail] = useState<Row | null>(null);
   const [action, setAction] = useState<{ mode: "COMPLETE" | "RESCHEDULE"; item: Row } | null>(null);
   const scheduled = followUps.filter((item) => item.status === "SCHEDULED");
   const done = followUps.filter((item) => item.status === "DONE");
@@ -1871,8 +1873,11 @@ function FollowupsPage({
       : view === "UPCOMING" ? upcoming
         : view === "DONE" ? [...done, ...cancelled]
           : followUps;
+  const scopeItems = baseItems.filter((item) => queueScope === "ALL"
+    || (queueScope === "OPEN" && item.status === "SCHEDULED")
+    || (queueScope === "CLOSED" && ["DONE", "CANCELLED"].includes(String(item.status))));
   const needle = query.trim().toLowerCase();
-  const shown = baseItems.filter((item) => {
+  const shown = scopeItems.filter((item) => {
     const bug = bugs.find((entry) => Number(entry.id) === Number(item.bug_id));
     return (typeFilter === "ALL" || String(item.type) === typeFilter)
       && (ownerFilter === "ALL" || String(item.owner_name) === ownerFilter)
@@ -1921,22 +1926,45 @@ function FollowupsPage({
     await onChanged("پیگیری لغو شد و در سابقه باقی ماند.");
   };
 
+  const selectView = (next: typeof view) => {
+    setView(next);
+    setQueueScope("ALL");
+  };
+  const detailBug = detail ? bugs.find((entry) => Number(entry.id) === Number(detail.bug_id)) : undefined;
+  const detailLate = Boolean(detail && detail.status === "SCHEDULED" && isPast(detail.scheduled_at));
+
+  useEffect(() => {
+    if (!detail) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDetail(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [detail]);
+
   return (
     <div className="followup-page">
       <section className="followup-summary-grid">
-        <button className={cx("followup-summary-card overdue", view === "OVERDUE" && "active")} onClick={() => setView("OVERDUE")}><span>عقب‌افتاده</span><strong>{faNumber(overdue.length)}</strong><small>موعد گذشته و نتیجه ثبت نشده</small></button>
-        <button className={cx("followup-summary-card today", view === "TODAY" && "active")} onClick={() => setView("TODAY")}><span>امروز</span><strong>{faNumber(today.length)}</strong><small>اقدام‌هایی که امروز موعد دارند</small></button>
-        <button className={cx("followup-summary-card upcoming", view === "UPCOMING" && "active")} onClick={() => setView("UPCOMING")}><span>آینده</span><strong>{faNumber(upcoming.length)}</strong><small>پیگیری‌های برنامه‌ریزی‌شده بعدی</small></button>
-        <button className={cx("followup-summary-card done", view === "DONE" && "active")} onClick={() => setView("DONE")}><span>انجام‌شده</span><strong>{faNumber(done.length)}</strong><small>{faNumber(cancelled.length)} مورد لغوشده</small></button>
+        <button className={cx("followup-summary-card overdue", view === "OVERDUE" && "active")} onClick={() => selectView("OVERDUE")}><span>عقب‌افتاده</span><strong>{faNumber(overdue.length)}</strong><small>موعد گذشته و نتیجه ثبت نشده</small></button>
+        <button className={cx("followup-summary-card today", view === "TODAY" && "active")} onClick={() => selectView("TODAY")}><span>امروز</span><strong>{faNumber(today.length)}</strong><small>اقدام‌هایی که امروز موعد دارند</small></button>
+        <button className={cx("followup-summary-card upcoming", view === "UPCOMING" && "active")} onClick={() => selectView("UPCOMING")}><span>آینده</span><strong>{faNumber(upcoming.length)}</strong><small>پیگیری‌های برنامه‌ریزی‌شده بعدی</small></button>
+        <button className={cx("followup-summary-card done", view === "DONE" && "active")} onClick={() => selectView("DONE")}><span>انجام‌شده</span><strong>{faNumber(done.length)}</strong><small>{faNumber(cancelled.length)} مورد لغوشده</small></button>
       </section>
 
       <section className="panel followup-workspace">
         <PanelHeader title="صف پیگیری" subtitle="موعد، مسئول، اقدام بعدی و نتیجه هر پیگیری در یک نما" />
         <div className="followup-toolbar">
-          <label className="followup-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجوی شناسه، موضوع، مسئول یا اقدام..." /></label>
-          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="ALL">همه نوع‌ها</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select>
-          <select value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)}><option value="ALL">همه مسئولان</option>{owners.map((owner) => <option key={owner} value={owner}>{owner}</option>)}</select>
-          <button className={cx("secondary-button", view === "ALL" && "active")} onClick={() => setView("ALL")}>نمایش همه</button>
+          <div className="followup-segment" role="group" aria-label="وضعیت صف پیگیری">
+            <button type="button" className={cx(view === "ALL" && queueScope === "ALL" && "active")} onClick={() => { setView("ALL"); setQueueScope("ALL"); }}>همه</button>
+            <button type="button" className={cx(view === "ALL" && queueScope === "OPEN" && "active")} onClick={() => { setView("ALL"); setQueueScope("OPEN"); }}>باز</button>
+            <button type="button" className={cx(view === "ALL" && queueScope === "CLOSED" && "active")} onClick={() => { setView("ALL"); setQueueScope("CLOSED"); }}>بسته</button>
+          </div>
+          <label className="followup-search"><Icon name="search" size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجوی شناسه، موضوع، مسئول یا اقدام..." /></label>
+          <div className="followup-toolbar-selects">
+            <select value={typeFilter} aria-label="نوع پیگیری" onChange={(event) => setTypeFilter(event.target.value)}><option value="ALL">همه نوع‌ها</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select>
+            <select value={ownerFilter} aria-label="مسئول پیگیری" onChange={(event) => setOwnerFilter(event.target.value)}><option value="ALL">همه مسئولان</option>{owners.map((owner) => <option key={owner} value={owner}>{owner}</option>)}</select>
+          </div>
+          <div className="followup-result-count"><strong>{faNumber(shown.length)}</strong><span>مورد در این نما</span></div>
         </div>
         <div className="followup-board">
           {shown.map((item) => {
@@ -1944,28 +1972,65 @@ function FollowupsPage({
             const late = item.status === "SCHEDULED" && isPast(item.scheduled_at);
             const isDone = item.status === "DONE";
             const isCancelled = item.status === "CANCELLED";
+            const scheduledAt = new Date(String(item.scheduled_at)).getTime();
+            const overdueHours = late && Number.isFinite(scheduledAt) ? Math.max(0, (pageLoadedAt - scheduledAt) / 3_600_000) : 0;
+            const critical = late && overdueHours >= Math.max(24, appSettings.followups.staleAfterHours);
             return (
-              <article className={cx("followup-card-pro", late && "late", isDone && "completed", isCancelled && "cancelled")} key={String(item.id)}>
+              <article className={cx("followup-card-pro", late && "late", critical && "critical", isDone && "completed", isCancelled && "cancelled")} key={String(item.id)}>
                 <div className="followup-card-head">
-                  <div><span className={cx("followup-state", late && "late", isDone && "done", isCancelled && "cancelled")}>{isCancelled ? "لغوشده" : isDone ? "انجام‌شده" : late ? "عقب‌افتاده" : "برنامه‌ریزی‌شده"}</span><strong>{String(item.type)}</strong></div>
+                  <div><span className={cx("followup-state", late && "late", isDone && "done", isCancelled && "cancelled")}>{isCancelled ? "لغوشده" : isDone ? "انجام‌شده" : critical ? "عقب‌افتاده بحرانی" : late ? "عقب‌افتاده" : "برنامه‌ریزی‌شده"}</span><strong>{String(item.type)}</strong></div>
                   <DateBlock value={item.status === "SCHEDULED" ? item.scheduled_at : item.completed_at} late={late} />
                 </div>
                 <button className="followup-bug-link" onClick={() => bug && onOpenBug(Number(bug.id))}><span>{String(bug?.bug_code ?? "بدون شناسه")}</span><strong>{String(bug?.title ?? "خطای مرتبط")}</strong></button>
                 <div className="followup-next-action"><span>{isDone || isCancelled ? "نتیجه" : "اقدام بعدی"}</span><p>{String((isDone || isCancelled ? item.result : item.next_action) || "هنوز توضیحی ثبت نشده است.")}</p></div>
                 <div className="followup-card-footer"><div className="task-owner"><span className="task-owner-badge" aria-hidden="true"><Icon name="person" size={14} /></span><Avatar name={String(item.owner_name)} /><span><small>مسئول پیگیری</small>{String(item.owner_name)}</span></div>{bug && <PriorityBadge value={String(bug.priority ?? "P3")} />}</div>
-                {canEdit && item.status === "SCHEDULED" && (
-                  <div className="followup-actions">
+                <div className="followup-actions">
+                  <button className="followup-view-action" onClick={() => setDetail(item)}><Icon name="search" size={13} /> مشاهده جزئیات</button>
+                  {canEdit && item.status === "SCHEDULED" && <>
                     <button className="primary-button small" onClick={() => setAction({ mode: "COMPLETE", item })}>ثبت نتیجه</button>
                     <button onClick={() => setAction({ mode: "RESCHEDULE", item })}>تغییر زمان</button>
                     <button className="danger-text" onClick={() => void cancel(item)}>لغو</button>
-                  </div>
-                )}
+                  </>}
+                </div>
               </article>
             );
           })}
           {!shown.length && <EmptyState title="موردی در این نما وجود ندارد" text="فیلترها را تغییر دهید یا یک پیگیری جدید برای خطای باز ثبت کنید." />}
         </div>
       </section>
+
+      {detail && (
+        <div className="followup-drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setDetail(null)}>
+          <aside className="followup-detail-drawer" role="dialog" aria-modal="true" aria-label="جزئیات پیگیری">
+            <header className="followup-drawer-head">
+              <div><span className="followup-drawer-code">{String(detailBug?.bug_code ?? "بدون شناسه")}</span><h3>{String(detail.type)}</h3><p>{String(detailBug?.title ?? "خطای مرتبط")}</p></div>
+              <button type="button" autoFocus aria-label="بستن جزئیات" onClick={() => setDetail(null)}>×</button>
+            </header>
+            <div className="followup-drawer-body">
+              <div className="followup-drawer-meta">
+                <div><span>مسئول</span><strong>{String(detail.owner_name || "تعیین نشده")}</strong></div>
+                <div><span>اولویت</span><strong>{String(detailBug?.priority ?? "—")}</strong></div>
+                <div><span>موعد</span><strong>{formatDate(detail.scheduled_at, true)}</strong><small>{formatRelativeDate(detail.scheduled_at)}</small></div>
+                <div><span>وضعیت</span><strong>{String(detail.status) === "DONE" ? "انجام‌شده" : String(detail.status) === "CANCELLED" ? "لغوشده" : detailLate ? "عقب‌افتاده" : "برنامه‌ریزی‌شده"}</strong></div>
+              </div>
+              <section><span>شرح رخداد</span><p>{String(detailBug?.description || detailBug?.title || "توضیحی ثبت نشده است.")}</p></section>
+              <section><span>{["DONE", "CANCELLED"].includes(String(detail.status)) ? "نتیجه ثبت‌شده" : "اقدام بعدی"}</span><p>{String((["DONE", "CANCELLED"].includes(String(detail.status)) ? detail.result : detail.next_action) || "هنوز توضیحی ثبت نشده است.")}</p></section>
+              <div className="followup-drawer-timeline">
+                <div><i></i><span><strong>ثبت پیگیری</strong><small>{formatDate(detail.created_at, true)}</small></span></div>
+                <div><i></i><span><strong>موعد پیگیری</strong><small>{formatDate(detail.scheduled_at, true)} · {formatRelativeDate(detail.scheduled_at)}</small></span></div>
+                <div className={cx(String(detail.status) === "DONE" && "done")}><i></i><span><strong>{String(detail.status) === "DONE" ? "نتیجه ثبت شده" : String(detail.status) === "CANCELLED" ? "پیگیری لغو شده" : "وضعیت فعلی"}</strong><small>{String(detail.status) === "SCHEDULED" ? "در انتظار ثبت نتیجه" : formatDate(detail.completed_at, true)}</small></span></div>
+              </div>
+            </div>
+            <footer className="followup-drawer-foot">
+              {detailBug && <button type="button" onClick={() => { setDetail(null); onOpenBug(Number(detailBug.id)); }}>باز کردن رخداد</button>}
+              {canEdit && detail.status === "SCHEDULED" && <>
+                <button type="button" onClick={() => { setAction({ mode: "RESCHEDULE", item: detail }); setDetail(null); }}>تغییر زمان</button>
+                <button type="button" className="primary-button" onClick={() => { setAction({ mode: "COMPLETE", item: detail }); setDetail(null); }}>ثبت نتیجه</button>
+              </>}
+            </footer>
+          </aside>
+        </div>
+      )}
 
       {action?.mode === "COMPLETE" && (
         <ModalShell title="ثبت نتیجه پیگیری" subtitle={`${String(action.item.type)} · ${String(action.item.owner_name)}`} onClose={() => setAction(null)}>
