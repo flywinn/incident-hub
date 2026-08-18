@@ -8,6 +8,8 @@ on:
       - scripts/apply-v115-ui-fixes.mjs
       - scripts/apply-v115-engine-fixes.mjs
       - scripts/apply-v115-existing-noc-fields.mjs
+      - scripts/apply-v115-followup-ux.mjs
+      - tests/followup-ux-v1.15.test.mjs
       - .github/workflows/v115-ui-patch.yml
   workflow_dispatch:
 
@@ -49,6 +51,9 @@ jobs:
       - name: Apply existing incident NOC fields
         run: node scripts/apply-v115-existing-noc-fields.mjs .
 
+      - name: Apply follow-up UX upgrade
+        run: node scripts/apply-v115-followup-ux.mjs .
+
       - name: Lint
         run: npm run lint
 
@@ -58,13 +63,13 @@ jobs:
       - name: Commit generated source changes
         shell: pwsh
         run: |
-          $changes = git status --porcelain -- app/incident-hub.tsx lib/email-intelligence.ts
+          $changes = git status --porcelain -- app/incident-hub.tsx app/v115.css lib/email-intelligence.ts
           if (-not $changes) {
             Write-Host '[OK] No generated source changes to commit.'
             exit 0
           }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/incident-hub.tsx lib/email-intelligence.ts
+          git add app/incident-hub.tsx app/v115.css lib/email-intelligence.ts
           git commit -m 'Apply validated v1.15 workflow fixes'
           git push origin HEAD:feature/noc-workflow-v1.15
