@@ -15,6 +15,7 @@ import {
 } from "react";
 
 import { DEFAULT_APP_SETTINGS, type AppSettings } from "../lib/settings";
+import PrtgToolSection from "./prtg-tool";
 
 type Row = Record<string, unknown>;
 
@@ -45,6 +46,7 @@ type PageKey =
   | "users"
   | "audit"
   | "automation"
+  | "prtg"
   | "settings"
   | "help";
 
@@ -173,6 +175,7 @@ const pageTitles: Record<PageKey, { title: string; kicker: string }> = {
   users: { title: "کاربران", kicker: "نقش و سطح دسترسی" },
   audit: { title: "سوابق تغییرات", kicker: "چه کسی، چه چیزی را تغییر داده است" },
   automation: { title: "اتصال‌ها", kicker: "ELK و کانال ارسال ایمیل" },
+  prtg: { title: "ابزار PRTG", kicker: "تبدیل آلارم‌ها به گزارش و ارسال به تلگرام" },
   settings: { title: "تنظیمات", kicker: "نمایش و دریافت اطلاعات" },
   help: { title: "راهنما و مستندات", kicker: "روش استفاده روزمره از سامانه" },
 };
@@ -184,6 +187,7 @@ const navItems: { key: PageKey; label: string; icon: IconName }[] = [
   { key: "services", label: "سرویس‌ها", icon: "service" },
   { key: "users", label: "کاربران", icon: "users" },
   { key: "audit", label: "سوابق تغییرات", icon: "audit" },
+  { key: "prtg", label: "ابزار PRTG", icon: "activity" },
   { key: "automation", label: "اتصال‌ها", icon: "automation" },
   { key: "settings", label: "تنظیمات", icon: "settings" },
 ];
@@ -762,6 +766,8 @@ export default function IncidentHub({
             />
           ) : page === "audit" ? (
             <AuditPage logs={data.auditLogs} />
+          ) : page === "prtg" ? (
+            <PrtgToolSection />
           ) : page === "automation" ? (
             <AutomationPage data={data} />
           ) : page === "help" ? (

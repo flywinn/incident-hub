@@ -7,7 +7,7 @@ import { apiError, requestIdFor } from "../../../lib/api";
 
 export const dynamic = "force-dynamic";
 
-const CODE_VERSION = "1.15.0";
+const CODE_VERSION = "1.15.1";
 
 function minimumFreeDiskMb() {
   const configured = Number(process.env.MIN_FREE_DISK_MB ?? 1024);

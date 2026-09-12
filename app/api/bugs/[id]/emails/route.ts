@@ -1,4 +1,5 @@
 import { ensureDatabase } from "../../../../../db/ensure";
+import type { LocalD1Database } from "../../../../../db/index";
 import { apiError, cleanText } from "../../../../../lib/api";
 import { authorizeRequest } from "../../../../../lib/auth";
 import {
@@ -65,13 +66,13 @@ function parseImageSelections(payload: Record<string, unknown>): EmailImageSelec
   return [...unique.entries()].map(([id, mode]) => ({ id, mode }));
 }
 
-async function loadMainSettings(d1: D1Database) {
+async function loadMainSettings(d1: LocalD1Database) {
   const row = await d1.prepare("SELECT value_json FROM app_settings WHERE setting_key = 'main'").first<{ value_json: string }>();
   if (!row?.value_json) return DEFAULT_APP_SETTINGS;
   try { return normalizeAppSettings(JSON.parse(row.value_json)); } catch { return DEFAULT_APP_SETTINGS; }
 }
 
-async function loadEmailContext(d1: D1Database, bugId: number) {
+async function loadEmailContext(d1: LocalD1Database, bugId: number) {
   const bug = await d1.prepare(`SELECT b.*, s.manager_email, s.alert_email
     FROM bugs b LEFT JOIN services s ON s.id = b.service_id
     WHERE b.id = ?`).bind(bugId).first<Record<string, unknown>>();

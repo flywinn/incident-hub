@@ -1,16 +1,16 @@
 {
   "name": "incident-hub-onprem",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "next dev --webpack -H 0.0.0.0 -p 3001",
-    "build": "next build && node scripts/prepare-standalone.mjs",
+    "build": "next build --webpack && node scripts/prepare-standalone.mjs",
     "start": "node scripts/start-server.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "lint": "eslint . --ignore-pattern .next --ignore-pattern data --ignore-pattern backups",
+    "lint": "eslint . --ignore-pattern .next --ignore-pattern data --ignore-pattern backups --ignore-pattern 'node_modules.failed-*'",
     "audit": "npm audit --audit-level=high",
     "verify": "npm run lint && npm run test && npm run audit",
     "db:backup": "node scripts/backup-db.mjs",

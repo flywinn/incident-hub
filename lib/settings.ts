@@ -6,6 +6,7 @@ export type AppPageKey =
   | "users"
   | "audit"
   | "automation"
+  | "prtg"
   | "settings"
   | "help";
 
@@ -50,6 +51,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     users: { title: "کاربران", kicker: "نقش و سطح دسترسی" },
     audit: { title: "سوابق تغییرات", kicker: "چه کسی، چه چیزی را تغییر داده است" },
     automation: { title: "اتصال‌ها", kicker: "ELK و کانال ارسال ایمیل" },
+    prtg: { title: "ابزار PRTG", kicker: "تبدیل آلارم‌ها به گزارش و ارسال به تلگرام" },
     settings: { title: "تنظیمات", kicker: "نمایش، متن‌ها و قواعد پیگیری" },
     help: { title: "راهنما و مستندات", kicker: "روش استفاده روزمره از سامانه" },
   },

@@ -1,8 +1,9 @@
 import { ensureDatabase } from "../../../../db/ensure";
+import type { LocalD1Database } from "../../../../db/index";
 import { apiError, cleanText } from "../../../../lib/api";
 import { authorizeRequest } from "../../../../lib/auth";
 
-async function refreshBugNextFollowUp(d1: D1Database, bugId: unknown) {
+async function refreshBugNextFollowUp(d1: LocalD1Database, bugId: unknown) {
   const next = await d1.prepare(`SELECT scheduled_at FROM follow_ups
     WHERE bug_id = ? AND status = 'SCHEDULED'
     ORDER BY scheduled_at LIMIT 1`).bind(bugId).first<{ scheduled_at: string }>();
