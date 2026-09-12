@@ -37,6 +37,23 @@ if (!existsSync(migrationsDir)) {
 mkdirSync(dirname(dbPath), { recursive: true });
 const database = new Database(dbPath);
 
+function checksum(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function migrationChecksums(sql) {
+  // Git/ZIP/PowerShell can convert LF migrations to CRLF on Windows. Treat only
+  // BOM and line-ending differences as equivalent while still rejecting any
+  // real modification to an already-applied migration.
+  const canonicalSql = sql.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const accepted = new Set([
+    checksum(sql),
+    checksum(canonicalSql),
+    checksum(canonicalSql.replace(/\n/g, "\r\n")),
+  ]);
+  return { accepted, canonical: checksum(canonicalSql) };
+}
+
 function quoteIdentifier(value) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
     throw new Error(`Invalid migration identifier: ${value}`);
@@ -79,13 +96,13 @@ try {
   for (const name of files) {
     const fullPath = resolve(migrationsDir, name);
     const sql = readFileSync(fullPath, "utf8");
-    const checksum = createHash("sha256").update(sql).digest("hex");
+    const checksums = migrationChecksums(sql);
     const existing = database.prepare(
       "SELECT migration_name, checksum_sha256 FROM schema_migrations WHERE migration_name = ?",
     ).get(name);
 
     if (existing) {
-      if (existing.checksum_sha256 !== checksum) {
+      if (!checksums.accepted.has(existing.checksum_sha256)) {
         throw new Error(`Applied migration was modified: ${name}`);
       }
       skipped.push(name);
@@ -97,7 +114,7 @@ try {
       database.exec(sql);
       database.prepare(
         "INSERT INTO schema_migrations (migration_name, checksum_sha256) VALUES (?, ?)",
-      ).run(name, checksum);
+      ).run(name, checksums.canonical);
     });
     applyMigration();
     applied.push(name);

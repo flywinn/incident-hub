@@ -322,7 +322,7 @@ function descriptionFor(row: ImportRow) {
   return parts.join(" ");
 }
 
-export async function importBugReport(d1: D1Database) {
+export async function importBugReport(d1: LocalD1Database) {
   await d1.prepare(`CREATE TABLE IF NOT EXISTS import_batches (
     batch_key TEXT PRIMARY KEY,
     source_name TEXT NOT NULL,
@@ -496,3 +496,4 @@ export async function importBugReport(d1: D1Database) {
 }
 
 export const bugReportImportCount = rows.length;
+import type { LocalD1Database } from "./index";

@@ -9,6 +9,8 @@ const requiredScripts = [
   "scripts/Start-Stable-Production.ps1",
   "scripts/Install-Stable-Production.ps1",
   "scripts/Configure-Production-Auth.ps1",
+  "scripts/Configure-Prtg-Telegram.ps1",
+  "scripts/Stabilize-Dev-Prod-Git.ps1",
   "scripts/Validate-Stable-Production.ps1",
   "scripts/Backup-Stable-Production.ps1",
   "scripts/stable-backup-db.mjs",

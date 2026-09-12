@@ -7,6 +7,8 @@ import { apiError, requestIdFor } from "../../../lib/api";
 
 export const dynamic = "force-dynamic";
 
+const CODE_VERSION = "1.15.1";
+
 function minimumFreeDiskMb() {
   const configured = Number(process.env.MIN_FREE_DISK_MB ?? 1024);
   return Number.isFinite(configured) ? Math.max(256, Math.trunc(configured)) : 1024;
@@ -39,10 +41,13 @@ export async function GET(request: Request) {
       status,
       timestamp: new Date().toISOString(),
       requestId,
+      version: CODE_VERSION,
     };
     const health = detailedHealthAuthorized(request)
       ? {
           ...publicHealth,
+          configuredVersion: process.env.APP_VERSION || "",
+          commit: process.env.APP_COMMIT || "",
           database: databaseOk ? "ok" : "error",
           disk: {
             status: diskOk ? "ok" : "low",
@@ -50,7 +55,6 @@ export async function GET(request: Request) {
             minimumMb,
           },
           uptimeSeconds: Math.floor(process.uptime()),
-          version: process.env.APP_VERSION || "1.14.0",
         }
       : publicHealth;
 

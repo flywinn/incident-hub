@@ -25,12 +25,17 @@ async function loadEngine() {
   return commonJsModule.exports;
 }
 
-test("technical incidents stay short and preserve useful endpoint/component/origin", async () => {
+test("technical incidents are informational and preserve useful NOC context", async () => {
   const engine = await loadEngine();
   const bug = {
     bug_code: "FLT-260804-01",
     title: "AllPassengerETicket خطای 503",
-    description: "در سرویس AllPassengerETicket از سمت چری خطای 503 مشاهده شده است.\n/api/V1/Flight/AllPassengerETicket\nLB-FL-C1",
+    description: "در سرویس AllPassengerETicket از سمت چری خطای 503 مشاهده شده است.\n/api/V1/Flight/AllPassengerETicket\nLB-FL-C1\nbk_TravelIranianApi\nAPI1AF",
+    technicalContext: {
+      errorCount: 174,
+      errorRate: 0.53,
+      requestCount: 11119,
+    },
     service_label: "ELK > AllPassengerETicket",
     status: "NEW",
     priority: "P2",
@@ -40,32 +45,84 @@ test("technical incidents stay short and preserve useful endpoint/component/orig
   };
   const recommended = engine.recommendedSmartEmailTemplate(bug, { historyCount: 0 });
   assert.equal(recommended, "TECHNICAL_INCIDENT");
-  const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, { historyCount: 0 });
+  const draft = engine.buildSmartEmailDraft(bug, ["owner@flytoday.ir"], recommended, [], null, {
+    historyCount: 0,
+    defaultCc: "noc@flytoday.ir",
+  });
   assert.match(draft.subject, /FLT-260804-01/);
   assert.match(draft.subject, /503/);
-  assert.match(draft.body, /از سمت چری/);
+  assert.match(draft.body, /به اطلاع می‌رساند/);
   assert.match(draft.body, /\/api\/V1\/Flight\/AllPassengerETicket/);
-  assert.match(draft.body, /LB-FL-C1/);
-  assert.match(draft.body, /علت فنی، اقدام انجام‌شده و وضعیت فعلی سرویس/);
-  assert.doesNotMatch(draft.body, /اولویت:/);
-  assert.doesNotMatch(draft.body, /وضعیت فعلی:/);
+  assert.match(draft.body, /LB: LB-FL-C1/);
+  assert.match(draft.body, /Backend: bk_TravelIranianApi/);
+  assert.match(draft.body, /Server: API1AF/);
+  assert.match(draft.body, /تعداد خطا: 174/);
+  assert.match(draft.body, /نرخ خطا: 0.53%/);
+  assert.match(draft.body, /تعداد درخواست: 11,119/);
+  assert.equal(draft.to, "owner@flytoday.ir");
+  assert.equal(draft.cc, "noc@flytoday.ir");
+  assert.doesNotMatch(draft.body, /خواهشمند است/);
+  assert.doesNotMatch(draft.body, /علت فنی/);
+  assert.doesNotMatch(draft.body, /RCA/i);
 });
 
-test("noise endpoints such as favicon are excluded", async () => {
+test("endpoint-led technical mail matches NOC wording and recognizes HostW", async () => {
+  const engine = await loadEngine();
+  const bug = {
+    bug_code: "GLOBAL-260817-01",
+    title: "خطای 500 PermanentApiToken",
+    description: "HTTP: 500\nEndpoint: /api/V1/global/PermanentApiToken\nLB: LB-FL-O-1\nServer: HostW",
+    service_label: "Global_main",
+    status: "NEW",
+    priority: "P2",
+    first_seen_at: "2026-08-17T10:30:00.000Z",
+    last_seen_at: "2026-08-17T10:30:00.000Z",
+  };
+  assert.deepEqual([...engine.extractServers(bug)], ["HostW"]);
+  const recommended = engine.recommendedSmartEmailTemplate(bug, { historyCount: 0 });
+  assert.equal(recommended, "TECHNICAL_INCIDENT");
+  const draft = engine.buildSmartEmailDraft(bug, ["owner@flytoday.ir"], recommended, [], null, {
+    historyCount: 0,
+    defaultCc: "noc@flytoday.ir",
+  });
+  assert.match(draft.body, /به اطلاع می‌رساند خطای 500 در مسیر \/api\/V1\/global\/PermanentApiToken مشاهده شده است\./);
+  assert.match(draft.body, /LB: LB-FL-O-1/);
+  assert.match(draft.body, /Server: HostW/);
+  assert.doesNotMatch(draft.body, /خواهشمند|علت|اقدام انجام‌شده|RCA/i);
+});
+
+test("labeled backend/server fields are extracted even without bk_ prefix", async () => {
+  const engine = await loadEngine();
+  const bug = {
+    bug_code: "BUS-260817-02",
+    title: "خطای 502",
+    description: "Endpoint: /api/V1/Bus/Search\nBackend: TravelGateway\nHost: BusHost01\nLB: LB-BUS-1",
+    service_label: "Bus",
+    status: "NEW",
+  };
+  assert.deepEqual([...engine.extractBackends(bug)], ["TravelGateway"]);
+  assert.deepEqual([...engine.extractServers(bug)], ["BusHost01"]);
+  const draft = engine.buildSmartEmailDraft(bug, [], "TECHNICAL_INCIDENT", [], null, { historyCount: 0 });
+  assert.match(draft.body, /Backend: TravelGateway/);
+  assert.match(draft.body, /Server: BusHost01/);
+});
+
+test("noise endpoints such as favicon and pwa manifest are excluded", async () => {
   const engine = await loadEngine();
   const bug = {
     bug_code: "IMG-260805-01",
     title: "سرویس image خطای 500",
-    description: "خطای 500 مشاهده شده است\n/favicon.ico",
+    description: "خطای 500 مشاهده شده است\n/favicon.ico\n/pwa-manifest.webmanifest",
     service_label: "image",
     status: "NEW",
   };
   assert.deepEqual([...engine.extractUsefulEndpoints(bug)], []);
   const draft = engine.buildSmartEmailDraft(bug, [], "TECHNICAL_INCIDENT", [], null, { historyCount: 0 });
   assert.doesNotMatch(draft.body, /favicon\.ico/);
+  assert.doesNotMatch(draft.body, /pwa-manifest/);
 });
 
-test("functional password-change issue uses the concise user-flow style", async () => {
+test("functional password-change issue uses concise informational style", async () => {
   const engine = await loadEngine();
   const bug = {
     bug_code: "USERM-260803-01",
@@ -76,14 +133,16 @@ test("functional password-change issue uses the concise user-flow style", async 
   };
   const recommended = engine.recommendedSmartEmailTemplate(bug, { historyCount: 0 });
   assert.equal(recommended, "FUNCTIONAL_ISSUE");
-  const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, { historyCount: 0 });
+  const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, { historyCount: 0, defaultCc: "noc@flytoday.ir" });
   assert.match(draft.body, /^با سلام،/);
+  assert.match(draft.body, /جهت اطلاع/);
   assert.match(draft.body, /فرآیند تغییر رمز عبور/);
   assert.match(draft.body, /USERM-260803-01/);
-  assert.doesNotMatch(draft.body, /علت فنی/);
+  assert.equal(draft.cc, "noc@flytoday.ir");
+  assert.doesNotMatch(draft.body, /علت فنی|خواهشمند است/);
 });
 
-test("internal service-stability notice is detected independently from technical escalation", async () => {
+test("internal service-stability notice remains concise", async () => {
   const engine = await loadEngine();
   const bug = {
     bug_code: "PAY-260805-01",
@@ -97,14 +156,15 @@ test("internal service-stability notice is detected independently from technical
   const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, { historyCount: 0 });
   assert.match(draft.body, /در صورت تماس مشتریان/);
   assert.match(draft.body, /تیم مربوطه در حال پیگیری موضوع است/);
+  assert.doesNotMatch(draft.body, /دستور فرمایید|علت فنی/);
 });
 
-test("follow-up becomes concise when a previous email exists", async () => {
+test("follow-up reports current state without asking why it is unresolved", async () => {
   const engine = await loadEngine();
   const bug = {
     bug_code: "HTL-260805-01",
     title: "خطای 503 هتل",
-    description: "/v1/Hotel/Recommendation/Prices",
+    description: "/v1/Hotel/Recommendation/Prices\nLB-FL-C1",
     service_label: "Hotel",
     status: "IN_PROGRESS",
     occurrence_count: 3,
@@ -113,11 +173,41 @@ test("follow-up becomes concise when a previous email exists", async () => {
   };
   const recommended = engine.recommendedSmartEmailTemplate(bug, { historyCount: 1 });
   assert.equal(recommended, "FOLLOW_UP");
-  const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, { historyCount: 1 });
-  assert.match(draft.body, /پیرو مکاتبات قبلی/);
-  assert.match(draft.body, /همچنان مرتفع نشده/);
-  assert.match(draft.body, /پیگیری‌های لازم/);
-  assert.doesNotMatch(draft.body, /Recommendation\/Prices/);
+  const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, {
+    historyCount: 1,
+    lastEmailAt: "2026-08-05T09:00:00.000Z",
+  });
+  assert.match(draft.body, /پیرو اطلاع‌رسانی قبلی/);
+  assert.match(draft.body, /در آخرین بررسی نیز مشاهده شده/);
+  assert.match(draft.body, /Recommendation\/Prices/);
+  assert.match(draft.body, /LB: LB-FL-C1/);
+  assert.doesNotMatch(draft.body, /چرا|علت عدم رفع|دستور فرمایید|پیگیری‌های لازم/);
+});
+
+test("resolution email announces recovery without default RCA request", async () => {
+  const engine = await loadEngine();
+  const bug = {
+    bug_code: "FLT-260805-03",
+    title: "خطای 502 Flight",
+    description: "/api/V1/Flight/Search",
+    service_label: "Flight",
+    status: "RESOLVED",
+  };
+  const recommended = engine.recommendedSmartEmailTemplate(bug, { historyCount: 2 });
+  assert.equal(recommended, "RESOLUTION_RCA");
+  const draft = engine.buildSmartEmailDraft(bug, [], recommended, [], null, { historyCount: 2 });
+  assert.match(draft.body, /رفع شده است/);
+  assert.doesNotMatch(draft.body, /RCA|علت ریشه‌ای|خواهشمند است/);
+});
+
+test("email route derives recipients from assignees and ignores system assignment history", async () => {
+  const route = await read("app/api/bugs/[id]/emails/route.ts");
+  assert.match(route, /u\.id IN \(SELECT user_id FROM bug_assignees WHERE bug_id = \?\)/);
+  assert.match(route, /OR u\.id = \(SELECT owner_id FROM bugs WHERE id = \?\)/);
+  assert.match(route, /missingAssigneeEmails/);
+  assert.match(route, /BUG_ASSIGNED/);
+  assert.match(route, /P1_ALERT/);
+  assert.match(route, /allHistory\.filter\(\(row\) => !isSystemGeneratedEmail\(row\)\)/);
 });
 
 test("EML generator supports real attachments plus optional inline images", async () => {

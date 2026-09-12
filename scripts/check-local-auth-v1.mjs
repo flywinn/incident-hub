@@ -28,7 +28,7 @@ assert.match(home, /redirect\("\/login"\)/);
 assert.match(login, /createLocalSessionToken/);
 assert.match(users, /validateLocalPassword/);
 assert.match(userById, /آخرین مدیر فعال سامانه/);
-assert.match(ui, /IncidentHub UI v1\.10 · Local Login & Roles/);
+assert.match(ui, /IncidentHub UI v1\.11\.3 · Simple Login \+ Self-service Username/);
 assert.match(ui, /name: "password"/);
 assert.match(ui, /رمز عبور جدید/);
 assert.match(env, /AUTH_MODE=LOCAL/);

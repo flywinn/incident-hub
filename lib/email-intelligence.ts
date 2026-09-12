@@ -1,10 +1,10 @@
 export const smartEmailTemplates = {
   TECHNICAL_INCIDENT: {
-    name: "خطای فنی / سرویس",
-    description: "برای خطاهای 5xx، API، Endpoint و اختلال زیرساختی",
+    name: "اطلاع‌رسانی خطای فنی",
+    description: "برای اطلاع‌رسانی خطاهای 5xx، API، Endpoint و اجزای زیرساختی",
   },
   FUNCTIONAL_ISSUE: {
-    name: "ایراد فرآیندی / کاربری",
+    name: "اطلاع‌رسانی ایراد کاربری",
     description: "برای مشکل در ورود، تغییر رمز، پرداخت، رزرو، UI و جریان کاربر",
   },
   INTERNAL_NOTICE: {
@@ -12,16 +12,25 @@ export const smartEmailTemplates = {
     description: "برای اطلاع به پشتیبانی، مرکز تماس یا تیم‌های داخلی",
   },
   FOLLOW_UP: {
-    name: "پیگیری مجدد",
-    description: "برای موضوعی که قبلاً اعلام شده و هنوز رفع نشده است",
+    name: "اطلاع‌رسانی پیگیری",
+    description: "برای اعلام آخرین وضعیت موضوعی که قبلاً اطلاع‌رسانی شده است",
   },
   RESOLUTION_RCA: {
-    name: "رفع مشکل / RCA",
-    description: "برای اعلام رفع و دریافت علت ریشه‌ای یا اقدام نهایی",
+    name: "اعلام رفع مشکل",
+    description: "برای اطلاع‌رسانی رفع یا پایان رخداد بدون درخواست RCA پیش‌فرض",
   },
 } as const;
 
 export type SmartEmailTemplateKey = keyof typeof smartEmailTemplates;
+
+type Metrics = {
+  errorCount: number | null;
+  errorRate: number | null;
+  requestCount: number | null;
+  successRate: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+};
 
 const legacyTemplateAliases: Record<string, SmartEmailTemplateKey> = {
   INCIDENT_ACTION: "TECHNICAL_INCIDENT",
@@ -48,6 +57,7 @@ const endpointNoisePatterns = [
   /^\/robots\.txt(?:$|[?#])/i,
   /^\/manifest(?:\.json)?(?:$|[?#])/i,
   /^\/site\.webmanifest(?:$|[?#])/i,
+  /^\/pwa-manifest(?:\.|\/|$)/i,
   /^\/apple-touch-icon/i,
   /^\/_next(?:\/|$)/i,
   /^\/static(?:\/|$)/i,
@@ -69,8 +79,27 @@ function collapseWhitespace(value: string) {
   return value.replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function unique(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function parseTechnicalJson(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
 export function sourceText(bug: Record<string, unknown>) {
-  return collapseWhitespace(`${bug.title ?? ""}\n${bug.description ?? ""}`);
+  const technical = parseTechnicalJson(bug.technical_context_json ?? bug.technicalContext);
+  const technicalText = Object.entries(technical)
+    .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(" ") : String(value ?? "")}`)
+    .join("\n");
+  return collapseWhitespace(`${bug.title ?? ""}\n${bug.description ?? ""}\n${technicalText}`);
 }
 
 export function humanizeService(value: unknown) {
@@ -83,6 +112,8 @@ export function humanizeService(value: unknown) {
 }
 
 export function extractErrorCode(bug: Record<string, unknown>) {
+  const direct = normalizeDigits(String(bug.status_code ?? bug.http_status ?? "")).match(/\b([45]\d{2}|599)\b/);
+  if (direct) return direct[1];
   const normalized = normalizeDigits(sourceText(bug));
   const match = normalized.match(/(?:خطا(?:ی)?|error|status|http)?\s*[:=\-]?\s*\b([45]\d{2}|599)\b/i);
   return match?.[1] ?? "";
@@ -94,23 +125,119 @@ function endpointLooksUseful(endpoint: string) {
 }
 
 export function extractUsefulEndpoints(bug: Record<string, unknown>) {
+  const technical = parseTechnicalJson(bug.technical_context_json ?? bug.technicalContext);
+  const directValues = [technical.endpoint, technical.path, bug.endpoint, bug.request_path]
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value.startsWith("/") && endpointLooksUseful(value));
   const text = sourceText(bug);
   const matches = text.match(/\/(?:api|gateway|v\d+|[A-Za-z0-9._~-]+)(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%{}\-]+)*/gi) ?? [];
   const cleaned = matches
     .map((item) => item.replace(/[،,.;:]+$/g, "").trim())
     .filter(endpointLooksUseful);
-  return [...new Set(cleaned)].slice(0, 8);
+  return unique([...directValues, ...cleaned]).slice(0, 8);
+}
+
+function directTechnicalValues(bug: Record<string, unknown>, keys: string[]) {
+  const technical = parseTechnicalJson(bug.technical_context_json ?? bug.technicalContext);
+  return keys.flatMap((key) => {
+    const values = [technical[key], bug[key]];
+    return values.flatMap((value) => Array.isArray(value) ? value : [value]);
+  }).map((value) => String(value ?? "").trim()).filter(Boolean);
+}
+
+function labeledValues(text: string, labels: string[]) {
+  const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const pattern = new RegExp(`(?:^|\\n|\\s)(?:${escaped})\\s*[:=：-]\\s*([A-Za-z0-9_.-]+)`, "gi");
+  return [...text.matchAll(pattern)].map((match) => match[1]);
+}
+
+export function extractLoadBalancers(bug: Record<string, unknown>) {
+  const text = sourceText(bug);
+  const direct = directTechnicalValues(bug, ["loadBalancer", "load_balancer", "lb", "frontend"]);
+  const labeled = labeledValues(text, ["LB", "LoadBalancer", "Load Balancer", "Frontend"]);
+  const matches = text.match(/\bLB-[A-Za-z0-9_.-]{2,}\b/gi) ?? [];
+  return unique([...direct, ...labeled, ...matches]).slice(0, 6);
+}
+
+export function extractBackends(bug: Record<string, unknown>) {
+  const text = sourceText(bug);
+  const direct = directTechnicalValues(bug, ["backend", "backendName", "backend_name", "bk"]);
+  const labeled = labeledValues(text, ["BK", "Backend", "BackendName", "Backend Name"]);
+  const patterns = [
+    /\bbk_[A-Za-z0-9_.-]+\b/gi,
+    /\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_.-]*(?:Api|API)\b/g,
+  ];
+  const matches = patterns.flatMap((pattern) => text.match(pattern) ?? []);
+  return unique([...direct, ...labeled, ...matches]).slice(0, 8);
+}
+
+export function extractServers(bug: Record<string, unknown>) {
+  const text = sourceText(bug);
+  const direct = directTechnicalValues(bug, ["server", "serverName", "server_name", "node", "host", "hostname"]);
+  const labeled = labeledValues(text, ["Server", "ServerName", "Server Name", "Host", "Hostname", "Node"]);
+  const patterns = [
+    /\bHost[A-Za-z0-9_.-]+\b/gi,
+    /\bAPI\d+[A-Za-z0-9_-]*\b/g,
+    /\b(?:WEB|SRV|APP|NODE)[-_]?[A-Za-z0-9]*\d+[A-Za-z0-9_-]*\b/gi,
+    /\bF\d+[A-Za-z]+[_-]\d+[A-Za-z0-9_-]*\b/g,
+  ];
+  const matches = patterns.flatMap((pattern) => text.match(pattern) ?? []);
+  return unique([...direct, ...labeled, ...matches]).slice(0, 8);
 }
 
 export function extractComponents(bug: Record<string, unknown>) {
+  return unique([
+    ...extractLoadBalancers(bug),
+    ...extractBackends(bug),
+    ...extractServers(bug),
+  ]).slice(0, 12);
+}
+
+function parseNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = normalizeDigits(String(value)).replace(/,/g, "").replace(/٪/g, "").trim();
+  const match = normalized.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function numberFromPatterns(text: string, patterns: RegExp[]) {
+  for (const pattern of patterns) {
+    const match = normalizeDigits(text).match(pattern);
+    if (match?.[1] !== undefined) {
+      const parsed = parseNumber(match[1]);
+      if (parsed !== null) return parsed;
+    }
+  }
+  return null;
+}
+
+export function extractMetrics(bug: Record<string, unknown>): Metrics {
+  const technical = parseTechnicalJson(bug.technical_context_json ?? bug.technicalContext);
   const text = sourceText(bug);
-  const patterns = [
-    /\bLB-[A-Za-z0-9-]{2,}\b/g,
-    /\bbk_[A-Za-z0-9_.-]+\b/g,
-    /\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_.-]*(?:Api|API)\b/g,
-  ];
-  const values = patterns.flatMap((pattern) => text.match(pattern) ?? []);
-  return [...new Set(values.map((value) => value.trim()))].slice(0, 6);
+  const direct = (keys: string[]) => {
+    for (const key of keys) {
+      const parsed = parseNumber(technical[key] ?? bug[key]);
+      if (parsed !== null) return parsed;
+    }
+    return null;
+  };
+  return {
+    errorCount: direct(["errorCount", "error_count", "errors5xx", "errors_5xx"])
+      ?? numberFromPatterns(text, [/(?:تعداد\s*خطا|error\s*count|5xx\s*errors?)\s*[:=]?\s*([\d,.]+)/i]),
+    errorRate: direct(["errorRate", "error_rate", "errorRatePct", "error_rate_pct"])
+      ?? numberFromPatterns(text, [/(?:نرخ\s*خطا|error\s*rate|5xx\s*error\s*rate)\s*[:=]?\s*([\d,.]+)\s*%?/i]),
+    requestCount: direct(["requestCount", "request_count", "requests", "total_requests"])
+      ?? numberFromPatterns(text, [/(?:تعداد\s*درخواست|requests?|request\s*count)\s*[:=]?\s*([\d,.]+)/i]),
+    successRate: direct(["successRate", "success_rate"])
+      ?? numberFromPatterns(text, [/(?:نرخ\s*موفقیت|success\s*rate)\s*[:=]?\s*([\d,.]+)\s*%?/i]),
+    p95Ms: direct(["p95Ms", "p95_ms", "p95"])
+      ?? numberFromPatterns(text, [/\bp95\s*[:=]?\s*([\d,.]+)\s*(?:ms)?/i]),
+    p99Ms: direct(["p99Ms", "p99_ms", "p99"])
+      ?? numberFromPatterns(text, [/\bp99\s*[:=]?\s*([\d,.]+)\s*(?:ms)?/i]),
+  };
 }
 
 export function detectOrigin(bug: Record<string, unknown>) {
@@ -147,7 +274,7 @@ function timeFromValue(value: unknown) {
 function dateTimeFromValue(value: unknown) {
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("fa-IR", {
+  return new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -156,18 +283,6 @@ function dateTimeFromValue(value: unknown) {
     hour12: false,
     timeZone: "Asia/Tehran",
   }).format(date);
-}
-
-function observedMoreThanOnce(bug: Record<string, unknown>) {
-  const count = Number(bug.occurrence_count ?? 0);
-  if (Number.isFinite(count) && count > 1) return true;
-  const first = new Date(String(bug.first_seen_at ?? "")).getTime();
-  const last = new Date(String(bug.last_seen_at ?? "")).getTime();
-  return Number.isFinite(first) && Number.isFinite(last) && last - first >= 5 * 60_000;
-}
-
-function isEndpointLed(text: string, endpoints: string[]) {
-  return endpoints.length === 1 && /(?:در\s+مسیر|مسیر\s+[^\n]*خطا)/i.test(text);
 }
 
 function compactFunctionalNarrative(bug: Record<string, unknown>) {
@@ -213,7 +328,7 @@ export function recommendedSmartEmailTemplate(
   if (["RESOLVED", "CLOSED"].includes(status)) return "RESOLUTION_RCA";
   if (historyCount > 0 && ["IN_PROGRESS", "WAITING", "REOPENED"].includes(status)) return "FOLLOW_UP";
   if (hasInternalNoticeSignals(text)) return "INTERNAL_NOTICE";
-  if (errorCode || endpoints.length) return "TECHNICAL_INCIDENT";
+  if (errorCode || endpoints.length || extractComponents(bug).length) return "TECHNICAL_INCIDENT";
   if (hasFunctionalSignals(text)) return "FUNCTIONAL_ISSUE";
   return "FUNCTIONAL_ISSUE";
 }
@@ -230,43 +345,77 @@ function endpointBlock(endpoints: string[]) {
   return `مسیرهای درگیر:\n${endpoints.map((endpoint) => `- ${endpoint}`).join("\n")}`;
 }
 
-function buildTechnicalDraft(bug: Record<string, unknown>, recipients: string[]) {
+function componentBlock(bug: Record<string, unknown>) {
+  const lines = [
+    ...extractLoadBalancers(bug).map((value) => `LB: ${value}`),
+    ...extractBackends(bug).map((value) => `Backend: ${value}`),
+    ...extractServers(bug).map((value) => `Server: ${value}`),
+  ];
+  return unique(lines).join("\n");
+}
+
+function formatMetricNumber(value: number) {
+  return Number.isInteger(value) ? value.toLocaleString("en-US") : value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function metricBlock(bug: Record<string, unknown>) {
+  const metrics = extractMetrics(bug);
+  const lines = [
+    metrics.errorCount !== null ? `تعداد خطا: ${formatMetricNumber(metrics.errorCount)}` : "",
+    metrics.errorRate !== null ? `نرخ خطا: ${formatMetricNumber(metrics.errorRate)}%` : "",
+    metrics.requestCount !== null ? `تعداد درخواست: ${formatMetricNumber(metrics.requestCount)}` : "",
+    metrics.successRate !== null ? `نرخ موفقیت: ${formatMetricNumber(metrics.successRate)}%` : "",
+    metrics.p95Ms !== null ? `P95: ${formatMetricNumber(metrics.p95Ms)} ms` : "",
+    metrics.p99Ms !== null ? `P99: ${formatMetricNumber(metrics.p99Ms)} ms` : "",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+function buildTechnicalDraft(bug: Record<string, unknown>, recipients: string[], defaultCc: string) {
   const text = sourceText(bug);
   const code = String(bug.bug_code ?? "").trim();
   const service = humanizeService(bug.service_label);
   const endpoints = extractUsefulEndpoints(bug);
-  const components = extractComponents(bug);
   const errorCode = extractErrorCode(bug);
   const origin = detectOrigin(bug);
-  const endpointLed = isEndpointLed(text, endpoints);
   const explicitTime = explicitTimeFromText(text);
   const hour = explicitTime || (/(?:ساعت|حوالی)/.test(text) ? timeFromValue(bug.first_seen_at) : "");
   const timePrefix = hour ? `از حوالی ساعت ${hour}، ` : "";
-  const errorPhrase = errorCode ? `خطای ${errorCode}` : "اختلال";
-  const originPhrase = origin ? ` از سمت ${origin}` : "";
-  const location = endpointLed
-    ? `در مسیر ${endpoints[0]}`
-    : `در سرویس ${service}${originPhrase}`;
+  const singleEndpoint = endpoints.length === 1 ? endpoints[0] : "";
 
-  const subjectTarget = endpointLed ? endpoints[0] : `سرویس ${service}`;
+  let observation: string;
+  if (singleEndpoint && errorCode) {
+    observation = `به اطلاع می‌رساند ${timePrefix}خطای ${errorCode} در مسیر ${singleEndpoint} مشاهده شده است.`;
+  } else if (singleEndpoint) {
+    observation = `به اطلاع می‌رساند ${timePrefix}در مسیر ${singleEndpoint} اختلال مشاهده شده است.`;
+  } else if (errorCode) {
+    observation = `به اطلاع می‌رساند ${timePrefix}خطای ${errorCode} در سرویس ${service}${origin ? ` از سمت ${origin}` : ""} مشاهده شده است.`;
+  } else {
+    observation = `به اطلاع می‌رساند ${timePrefix}در سرویس ${service}${origin ? ` از سمت ${origin}` : ""} اختلال مشاهده شده است.`;
+  }
+
+  const subjectTarget = singleEndpoint || `سرویس ${service}`;
   const subject = errorCode
     ? `[${code}] خطای ${errorCode} در ${subjectTarget}`
     : `[${code}] اختلال در ${subjectTarget}`;
 
-  const paragraphs = [
-    "با سلام و احترام،",
-    `به اطلاع می‌رساند ${timePrefix}${location} ${errorPhrase} مشاهده شده و عملکرد سرویس نیازمند بررسی است.`,
-    endpointLed ? "" : endpointBlock(endpoints),
-    components.length ? components.join("\n") : "",
-    "خواهشمند است علت فنی، اقدام انجام‌شده و وضعیت فعلی سرویس اعلام شود.",
-    code ? `شناسه رخداد: ${code}` : "",
-    "با تشکر و احترام.",
-  ].filter(Boolean);
-
-  return { to: recipients.join(", "), cc: "", subject, body: paragraphs.join("\n\n") };
+  return {
+    to: recipients.join(", "),
+    cc: defaultCc,
+    subject,
+    body: [
+      "با سلام و احترام،",
+      observation,
+      endpoints.length > 1 ? endpointBlock(endpoints) : "",
+      componentBlock(bug),
+      metricBlock(bug),
+      code ? `شناسه رخداد: ${code}` : "",
+      "با تشکر و احترام.",
+    ].filter(Boolean).join("\n\n"),
+  };
 }
 
-function buildFunctionalDraft(bug: Record<string, unknown>, recipients: string[]) {
+function buildFunctionalDraft(bug: Record<string, unknown>, recipients: string[], defaultCc: string) {
   const code = String(bug.bug_code ?? "").trim();
   const topic = functionalTopic(bug);
   let narrative = compactFunctionalNarrative(bug);
@@ -276,7 +425,7 @@ function buildFunctionalDraft(bug: Record<string, unknown>, recipients: string[]
 
   return {
     to: recipients.join(", "),
-    cc: "",
+    cc: defaultCc,
     subject: `[${code}] اختلال در ${topic}`,
     body: [
       "با سلام،",
@@ -287,63 +436,69 @@ function buildFunctionalDraft(bug: Record<string, unknown>, recipients: string[]
   };
 }
 
-function buildInternalNoticeDraft(bug: Record<string, unknown>, recipients: string[]) {
+function buildInternalNoticeDraft(bug: Record<string, unknown>, recipients: string[], defaultCc: string) {
   const code = String(bug.bug_code ?? "").trim();
   const service = humanizeService(bug.service_label);
   const text = sourceText(bug);
   const customerCue = /تماس\s+مشتری|مشتریان|مرکز\s*تماس|کال\s*سنتر|پشتیبانی/i.test(text);
-  const paragraphs = [
-    "با سلام و احترام،",
-    `به اطلاع می‌رساند در حال حاضر سرویس ${service} از پایداری لازم برخوردار نیست و ممکن است کاربران در فرآیند استفاده از این سرویس با اختلال یا تأخیر مواجه شوند.`,
-    customerCue
-      ? "خواهشمند است در صورت تماس مشتریان در این خصوص، ضمن اطلاع‌رسانی درباره وجود اختلال، از آن‌ها درخواست شود تا با صبوری همراهی کنند."
-      : "تیم مربوطه در حال پیگیری موضوع است و پس از بازگشت سرویس به وضعیت پایدار اطلاع‌رسانی خواهد شد.",
-    customerCue ? "تیم مربوطه در حال پیگیری موضوع است و به محض بازگشت سرویس به وضعیت پایدار، اطلاع‌رسانی انجام خواهد شد." : "",
-    code ? `شناسه رخداد: ${code}` : "",
-    "از همکاری و همراهی شما سپاسگزاریم.",
-  ].filter(Boolean);
-
   return {
     to: recipients.join(", "),
-    cc: "",
+    cc: defaultCc,
     subject: `[${code}] اطلاع‌رسانی اختلال سرویس ${service}`,
-    body: paragraphs.join("\n\n"),
-  };
-}
-
-function buildFollowUpDraft(bug: Record<string, unknown>, recipients: string[]) {
-  const code = String(bug.bug_code ?? "").trim();
-  const service = humanizeService(bug.service_label);
-  const stillObserved = observedMoreThanOnce(bug);
-  const followUpSentence = stillObserved
-    ? "پیرو مکاتبات قبلی، به اطلاع می‌رساند موضوع مطرح‌شده همچنان مرتفع نشده و در آخرین بررسی نیز مشاهده شده است."
-    : "پیرو مکاتبات قبلی، به اطلاع می‌رساند موضوع مطرح‌شده همچنان مرتفع نشده است.";
-
-  return {
-    to: recipients.join(", "),
-    cc: "",
-    subject: `[پیگیری][${code}] ${service}`,
     body: [
       "با سلام و احترام،",
-      followUpSentence,
-      "ممنون می‌شوم دستور فرمایید پیگیری‌های لازم انجام شود.",
+      `به اطلاع می‌رساند در حال حاضر سرویس ${service} از پایداری لازم برخوردار نیست و ممکن است کاربران در فرآیند استفاده از این سرویس با اختلال یا تأخیر مواجه شوند.`,
+      customerCue ? "در صورت تماس مشتریان در این خصوص، وجود اختلال اطلاع‌رسانی شود. تیم مربوطه در حال پیگیری موضوع است." : "تیم مربوطه در حال پیگیری موضوع است و پس از بازگشت سرویس به وضعیت پایدار اطلاع‌رسانی خواهد شد.",
       code ? `شناسه رخداد: ${code}` : "",
-      "با تشکر",
+      "از همکاری و همراهی شما سپاسگزاریم.",
     ].filter(Boolean).join("\n\n"),
   };
 }
 
-function buildResolutionDraft(bug: Record<string, unknown>, recipients: string[]) {
+function buildFollowUpDraft(
+  bug: Record<string, unknown>,
+  recipients: string[],
+  defaultCc: string,
+  lastEmailAt: unknown,
+) {
+  const code = String(bug.bug_code ?? "").trim();
+  const service = humanizeService(bug.service_label);
+  const lastSeenTime = new Date(String(bug.last_seen_at ?? "")).getTime();
+  const lastEmailTime = new Date(String(lastEmailAt ?? "")).getTime();
+  const observedAfterLastEmail = Number.isFinite(lastSeenTime)
+    && Number.isFinite(lastEmailTime)
+    && lastSeenTime > lastEmailTime;
+  const statusSentence = observedAfterLastEmail
+    ? "پیرو اطلاع‌رسانی قبلی، خطا در آخرین بررسی نیز مشاهده شده است."
+    : "پیرو اطلاع‌رسانی قبلی، موضوع همچنان در وضعیت باز قرار دارد.";
+  const lastSeen = dateTimeFromValue(bug.last_seen_at);
+
+  return {
+    to: recipients.join(", "),
+    cc: defaultCc,
+    subject: `[پیگیری][${code}] ${service}`,
+    body: [
+      "با سلام و احترام،",
+      statusSentence,
+      lastSeen ? `آخرین مشاهده: ${lastSeen}` : "",
+      endpointBlock(extractUsefulEndpoints(bug)),
+      componentBlock(bug),
+      code ? `شناسه رخداد: ${code}` : "",
+      "با تشکر و احترام.",
+    ].filter(Boolean).join("\n\n"),
+  };
+}
+
+function buildResolutionDraft(bug: Record<string, unknown>, recipients: string[], defaultCc: string) {
   const code = String(bug.bug_code ?? "").trim();
   const service = humanizeService(bug.service_label);
   return {
     to: recipients.join(", "),
-    cc: "",
+    cc: defaultCc,
     subject: `[رفع][${code}] سرویس ${service}`,
     body: [
       "با سلام و احترام،",
-      `به اطلاع می‌رساند موضوع ثبت‌شده در سرویس ${service} بر اساس آخرین وضعیت سامانه رفع شده است.`,
-      "خواهشمند است در صورت امکان علت ریشه‌ای بروز مشکل و اقدام انجام‌شده جهت جلوگیری از تکرار اعلام شود.",
+      `جهت اطلاع، موضوع ثبت‌شده در سرویس ${service} بر اساس آخرین بررسی رفع شده است.`,
       code ? `شناسه رخداد: ${code}` : "",
       "با تشکر و احترام.",
     ].filter(Boolean).join("\n\n"),
@@ -360,9 +515,13 @@ function recommendationReason(
   const status = String(bug.status ?? "NEW");
   if (intent === "FOLLOW_UP") return `قبلاً ایمیل ثبت شده و وضعیت رخداد ${statusLabels[status] ?? status} است`;
   if (intent === "RESOLUTION_RCA") return `وضعیت رخداد ${statusLabels[status] ?? status} است`;
-  if (intent === "INTERNAL_NOTICE") return "متن رخداد نشانه‌های اطلاع‌رسانی داخلی/مشتری دارد";
+  if (intent === "INTERNAL_NOTICE") return "متن رخداد برای اطلاع‌رسانی داخلی مناسب است";
   if (intent === "TECHNICAL_INCIDENT") {
-    const parts = [errorCode ? `HTTP ${errorCode}` : "", endpoints.length ? `${endpoints.length.toLocaleString("fa-IR")} مسیر معتبر` : ""].filter(Boolean);
+    const parts = [
+      errorCode ? `HTTP ${errorCode}` : "",
+      endpoints.length ? `${endpoints.length.toLocaleString("fa-IR")} مسیر معتبر` : "",
+      extractComponents(bug).length ? `${extractComponents(bug).length.toLocaleString("fa-IR")} مؤلفه فنی` : "",
+    ].filter(Boolean);
     return parts.join(" · ") || "نشانه فنی در رخداد ثبت شده است";
   }
   if (historyCount > 0) return "رخداد ماهیت فرآیندی/کاربری دارد";
@@ -375,22 +534,27 @@ export function buildSmartEmailDraft(
   templateKey: SmartEmailTemplateKey,
   attachments: Record<string, unknown>[],
   latestFollowUp: Record<string, unknown> | null,
-  options: { historyCount?: number } = {},
+  options: { historyCount?: number; defaultCc?: string; lastEmailAt?: unknown } = {},
 ) {
   const historyCount = Math.max(0, Number(options.historyCount ?? 0));
+  const defaultCc = String(options.defaultCc ?? "").trim();
   const recommended = recommendedSmartEmailTemplate(bug, { historyCount });
   const draft = templateKey === "TECHNICAL_INCIDENT"
-    ? buildTechnicalDraft(bug, recipients)
+    ? buildTechnicalDraft(bug, recipients, defaultCc)
     : templateKey === "FUNCTIONAL_ISSUE"
-      ? buildFunctionalDraft(bug, recipients)
+      ? buildFunctionalDraft(bug, recipients, defaultCc)
       : templateKey === "INTERNAL_NOTICE"
-        ? buildInternalNoticeDraft(bug, recipients)
+        ? buildInternalNoticeDraft(bug, recipients, defaultCc)
         : templateKey === "FOLLOW_UP"
-          ? buildFollowUpDraft(bug, recipients)
-          : buildResolutionDraft(bug, recipients);
+          ? buildFollowUpDraft(bug, recipients, defaultCc, options.lastEmailAt)
+          : buildResolutionDraft(bug, recipients, defaultCc);
 
   const endpoints = extractUsefulEndpoints(bug);
+  const loadBalancers = extractLoadBalancers(bug);
+  const backends = extractBackends(bug);
+  const servers = extractServers(bug);
   const components = extractComponents(bug);
+  const metrics = extractMetrics(bug);
   const errorCode = extractErrorCode(bug);
   const status = String(bug.status ?? "NEW");
 
@@ -409,6 +573,10 @@ export function buildSmartEmailDraft(
       errorLabel: errorCode ? `خطای ${errorCode}` : "",
       endpoints,
       components,
+      loadBalancers,
+      backends,
+      servers,
+      metrics,
       origin: detectOrigin(bug),
       service: humanizeService(bug.service_label),
       firstSeen: dateTimeFromValue(bug.first_seen_at),

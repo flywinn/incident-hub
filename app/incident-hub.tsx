@@ -10,10 +10,12 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import { DEFAULT_APP_SETTINGS, type AppSettings } from "../lib/settings";
+import PrtgToolSection from "./prtg-tool";
 
 type Row = Record<string, unknown>;
 
@@ -44,6 +46,7 @@ type PageKey =
   | "users"
   | "audit"
   | "automation"
+  | "prtg"
   | "settings"
   | "help";
 
@@ -172,6 +175,7 @@ const pageTitles: Record<PageKey, { title: string; kicker: string }> = {
   users: { title: "کاربران", kicker: "نقش و سطح دسترسی" },
   audit: { title: "سوابق تغییرات", kicker: "چه کسی، چه چیزی را تغییر داده است" },
   automation: { title: "اتصال‌ها", kicker: "ELK و کانال ارسال ایمیل" },
+  prtg: { title: "ابزار PRTG", kicker: "تبدیل آلارم‌ها به گزارش و ارسال به تلگرام" },
   settings: { title: "تنظیمات", kicker: "نمایش و دریافت اطلاعات" },
   help: { title: "راهنما و مستندات", kicker: "روش استفاده روزمره از سامانه" },
 };
@@ -183,6 +187,7 @@ const navItems: { key: PageKey; label: string; icon: IconName }[] = [
   { key: "services", label: "سرویس‌ها", icon: "service" },
   { key: "users", label: "کاربران", icon: "users" },
   { key: "audit", label: "سوابق تغییرات", icon: "audit" },
+  { key: "prtg", label: "ابزار PRTG", icon: "activity" },
   { key: "automation", label: "اتصال‌ها", icon: "automation" },
   { key: "settings", label: "تنظیمات", icon: "settings" },
 ];
@@ -761,6 +766,8 @@ export default function IncidentHub({
             />
           ) : page === "audit" ? (
             <AuditPage logs={data.auditLogs} />
+          ) : page === "prtg" ? (
+            <PrtgToolSection />
           ) : page === "automation" ? (
             <AutomationPage data={data} />
           ) : page === "help" ? (
@@ -1848,6 +1855,8 @@ function FollowupsPage({
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [ownerFilter, setOwnerFilter] = useState("ALL");
+  const [queueScope, setQueueScope] = useState<"ALL" | "OPEN" | "CLOSED">("ALL");
+  const [detail, setDetail] = useState<Row | null>(null);
   const [action, setAction] = useState<{ mode: "COMPLETE" | "RESCHEDULE"; item: Row } | null>(null);
   const scheduled = followUps.filter((item) => item.status === "SCHEDULED");
   const done = followUps.filter((item) => item.status === "DONE");
@@ -1870,8 +1879,11 @@ function FollowupsPage({
       : view === "UPCOMING" ? upcoming
         : view === "DONE" ? [...done, ...cancelled]
           : followUps;
+  const scopeItems = baseItems.filter((item) => queueScope === "ALL"
+    || (queueScope === "OPEN" && item.status === "SCHEDULED")
+    || (queueScope === "CLOSED" && ["DONE", "CANCELLED"].includes(String(item.status))));
   const needle = query.trim().toLowerCase();
-  const shown = baseItems.filter((item) => {
+  const shown = scopeItems.filter((item) => {
     const bug = bugs.find((entry) => Number(entry.id) === Number(item.bug_id));
     return (typeFilter === "ALL" || String(item.type) === typeFilter)
       && (ownerFilter === "ALL" || String(item.owner_name) === ownerFilter)
@@ -1920,22 +1932,45 @@ function FollowupsPage({
     await onChanged("پیگیری لغو شد و در سابقه باقی ماند.");
   };
 
+  const selectView = (next: typeof view) => {
+    setView(next);
+    setQueueScope("ALL");
+  };
+  const detailBug = detail ? bugs.find((entry) => Number(entry.id) === Number(detail.bug_id)) : undefined;
+  const detailLate = Boolean(detail && detail.status === "SCHEDULED" && isPast(detail.scheduled_at));
+
+  useEffect(() => {
+    if (!detail) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDetail(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [detail]);
+
   return (
     <div className="followup-page">
       <section className="followup-summary-grid">
-        <button className={cx("followup-summary-card overdue", view === "OVERDUE" && "active")} onClick={() => setView("OVERDUE")}><span>عقب‌افتاده</span><strong>{faNumber(overdue.length)}</strong><small>موعد گذشته و نتیجه ثبت نشده</small></button>
-        <button className={cx("followup-summary-card today", view === "TODAY" && "active")} onClick={() => setView("TODAY")}><span>امروز</span><strong>{faNumber(today.length)}</strong><small>اقدام‌هایی که امروز موعد دارند</small></button>
-        <button className={cx("followup-summary-card upcoming", view === "UPCOMING" && "active")} onClick={() => setView("UPCOMING")}><span>آینده</span><strong>{faNumber(upcoming.length)}</strong><small>پیگیری‌های برنامه‌ریزی‌شده بعدی</small></button>
-        <button className={cx("followup-summary-card done", view === "DONE" && "active")} onClick={() => setView("DONE")}><span>انجام‌شده</span><strong>{faNumber(done.length)}</strong><small>{faNumber(cancelled.length)} مورد لغوشده</small></button>
+        <button className={cx("followup-summary-card overdue", view === "OVERDUE" && "active")} onClick={() => selectView("OVERDUE")}><span>عقب‌افتاده</span><strong>{faNumber(overdue.length)}</strong><small>موعد گذشته و نتیجه ثبت نشده</small></button>
+        <button className={cx("followup-summary-card today", view === "TODAY" && "active")} onClick={() => selectView("TODAY")}><span>امروز</span><strong>{faNumber(today.length)}</strong><small>اقدام‌هایی که امروز موعد دارند</small></button>
+        <button className={cx("followup-summary-card upcoming", view === "UPCOMING" && "active")} onClick={() => selectView("UPCOMING")}><span>آینده</span><strong>{faNumber(upcoming.length)}</strong><small>پیگیری‌های برنامه‌ریزی‌شده بعدی</small></button>
+        <button className={cx("followup-summary-card done", view === "DONE" && "active")} onClick={() => selectView("DONE")}><span>انجام‌شده</span><strong>{faNumber(done.length)}</strong><small>{faNumber(cancelled.length)} مورد لغوشده</small></button>
       </section>
 
       <section className="panel followup-workspace">
         <PanelHeader title="صف پیگیری" subtitle="موعد، مسئول، اقدام بعدی و نتیجه هر پیگیری در یک نما" />
         <div className="followup-toolbar">
-          <label className="followup-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجوی شناسه، موضوع، مسئول یا اقدام..." /></label>
-          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="ALL">همه نوع‌ها</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select>
-          <select value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)}><option value="ALL">همه مسئولان</option>{owners.map((owner) => <option key={owner} value={owner}>{owner}</option>)}</select>
-          <button className={cx("secondary-button", view === "ALL" && "active")} onClick={() => setView("ALL")}>نمایش همه</button>
+          <div className="followup-segment" role="group" aria-label="وضعیت صف پیگیری">
+            <button type="button" className={cx(view === "ALL" && queueScope === "ALL" && "active")} onClick={() => { setView("ALL"); setQueueScope("ALL"); }}>همه</button>
+            <button type="button" className={cx(view === "ALL" && queueScope === "OPEN" && "active")} onClick={() => { setView("ALL"); setQueueScope("OPEN"); }}>باز</button>
+            <button type="button" className={cx(view === "ALL" && queueScope === "CLOSED" && "active")} onClick={() => { setView("ALL"); setQueueScope("CLOSED"); }}>بسته</button>
+          </div>
+          <label className="followup-search"><Icon name="search" size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجوی شناسه، موضوع، مسئول یا اقدام..." /></label>
+          <div className="followup-toolbar-selects">
+            <select value={typeFilter} aria-label="نوع پیگیری" onChange={(event) => setTypeFilter(event.target.value)}><option value="ALL">همه نوع‌ها</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select>
+            <select value={ownerFilter} aria-label="مسئول پیگیری" onChange={(event) => setOwnerFilter(event.target.value)}><option value="ALL">همه مسئولان</option>{owners.map((owner) => <option key={owner} value={owner}>{owner}</option>)}</select>
+          </div>
+          <div className="followup-result-count"><strong>{faNumber(shown.length)}</strong><span>مورد در این نما</span></div>
         </div>
         <div className="followup-board">
           {shown.map((item) => {
@@ -1943,28 +1978,65 @@ function FollowupsPage({
             const late = item.status === "SCHEDULED" && isPast(item.scheduled_at);
             const isDone = item.status === "DONE";
             const isCancelled = item.status === "CANCELLED";
+            const scheduledAt = new Date(String(item.scheduled_at)).getTime();
+            const overdueHours = late && Number.isFinite(scheduledAt) ? Math.max(0, (pageLoadedAt - scheduledAt) / 3_600_000) : 0;
+            const critical = late && overdueHours >= Math.max(24, appSettings.followups.staleAfterHours);
             return (
-              <article className={cx("followup-card-pro", late && "late", isDone && "completed", isCancelled && "cancelled")} key={String(item.id)}>
+              <article className={cx("followup-card-pro", late && "late", critical && "critical", isDone && "completed", isCancelled && "cancelled")} key={String(item.id)}>
                 <div className="followup-card-head">
-                  <div><span className={cx("followup-state", late && "late", isDone && "done", isCancelled && "cancelled")}>{isCancelled ? "لغوشده" : isDone ? "انجام‌شده" : late ? "عقب‌افتاده" : "برنامه‌ریزی‌شده"}</span><strong>{String(item.type)}</strong></div>
+                  <div><span className={cx("followup-state", late && "late", isDone && "done", isCancelled && "cancelled")}>{isCancelled ? "لغوشده" : isDone ? "انجام‌شده" : critical ? "عقب‌افتاده بحرانی" : late ? "عقب‌افتاده" : "برنامه‌ریزی‌شده"}</span><strong>{String(item.type)}</strong></div>
                   <DateBlock value={item.status === "SCHEDULED" ? item.scheduled_at : item.completed_at} late={late} />
                 </div>
                 <button className="followup-bug-link" onClick={() => bug && onOpenBug(Number(bug.id))}><span>{String(bug?.bug_code ?? "بدون شناسه")}</span><strong>{String(bug?.title ?? "خطای مرتبط")}</strong></button>
                 <div className="followup-next-action"><span>{isDone || isCancelled ? "نتیجه" : "اقدام بعدی"}</span><p>{String((isDone || isCancelled ? item.result : item.next_action) || "هنوز توضیحی ثبت نشده است.")}</p></div>
                 <div className="followup-card-footer"><div className="task-owner"><span className="task-owner-badge" aria-hidden="true"><Icon name="person" size={14} /></span><Avatar name={String(item.owner_name)} /><span><small>مسئول پیگیری</small>{String(item.owner_name)}</span></div>{bug && <PriorityBadge value={String(bug.priority ?? "P3")} />}</div>
-                {canEdit && item.status === "SCHEDULED" && (
-                  <div className="followup-actions">
+                <div className="followup-actions">
+                  <button className="followup-view-action" onClick={() => setDetail(item)}><Icon name="search" size={13} /> مشاهده جزئیات</button>
+                  {canEdit && item.status === "SCHEDULED" && <>
                     <button className="primary-button small" onClick={() => setAction({ mode: "COMPLETE", item })}>ثبت نتیجه</button>
                     <button onClick={() => setAction({ mode: "RESCHEDULE", item })}>تغییر زمان</button>
                     <button className="danger-text" onClick={() => void cancel(item)}>لغو</button>
-                  </div>
-                )}
+                  </>}
+                </div>
               </article>
             );
           })}
           {!shown.length && <EmptyState title="موردی در این نما وجود ندارد" text="فیلترها را تغییر دهید یا یک پیگیری جدید برای خطای باز ثبت کنید." />}
         </div>
       </section>
+
+      {detail && (
+        <div className="followup-drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setDetail(null)}>
+          <aside className="followup-detail-drawer" role="dialog" aria-modal="true" aria-label="جزئیات پیگیری">
+            <header className="followup-drawer-head">
+              <div><span className="followup-drawer-code">{String(detailBug?.bug_code ?? "بدون شناسه")}</span><h3>{String(detail.type)}</h3><p>{String(detailBug?.title ?? "خطای مرتبط")}</p></div>
+              <button type="button" autoFocus aria-label="بستن جزئیات" onClick={() => setDetail(null)}>×</button>
+            </header>
+            <div className="followup-drawer-body">
+              <div className="followup-drawer-meta">
+                <div><span>مسئول</span><strong>{String(detail.owner_name || "تعیین نشده")}</strong></div>
+                <div><span>اولویت</span><strong>{String(detailBug?.priority ?? "—")}</strong></div>
+                <div><span>موعد</span><strong>{formatDate(detail.scheduled_at, true)}</strong><small>{formatRelativeDate(detail.scheduled_at)}</small></div>
+                <div><span>وضعیت</span><strong>{String(detail.status) === "DONE" ? "انجام‌شده" : String(detail.status) === "CANCELLED" ? "لغوشده" : detailLate ? "عقب‌افتاده" : "برنامه‌ریزی‌شده"}</strong></div>
+              </div>
+              <section><span>شرح رخداد</span><p>{String(detailBug?.description || detailBug?.title || "توضیحی ثبت نشده است.")}</p></section>
+              <section><span>{["DONE", "CANCELLED"].includes(String(detail.status)) ? "نتیجه ثبت‌شده" : "اقدام بعدی"}</span><p>{String((["DONE", "CANCELLED"].includes(String(detail.status)) ? detail.result : detail.next_action) || "هنوز توضیحی ثبت نشده است.")}</p></section>
+              <div className="followup-drawer-timeline">
+                <div><i></i><span><strong>ثبت پیگیری</strong><small>{formatDate(detail.created_at, true)}</small></span></div>
+                <div><i></i><span><strong>موعد پیگیری</strong><small>{formatDate(detail.scheduled_at, true)} · {formatRelativeDate(detail.scheduled_at)}</small></span></div>
+                <div className={cx(String(detail.status) === "DONE" && "done")}><i></i><span><strong>{String(detail.status) === "DONE" ? "نتیجه ثبت شده" : String(detail.status) === "CANCELLED" ? "پیگیری لغو شده" : "وضعیت فعلی"}</strong><small>{String(detail.status) === "SCHEDULED" ? "در انتظار ثبت نتیجه" : formatDate(detail.completed_at, true)}</small></span></div>
+              </div>
+            </div>
+            <footer className="followup-drawer-foot">
+              {detailBug && <button type="button" onClick={() => { setDetail(null); onOpenBug(Number(detailBug.id)); }}>باز کردن رخداد</button>}
+              {canEdit && detail.status === "SCHEDULED" && <>
+                <button type="button" onClick={() => { setAction({ mode: "RESCHEDULE", item: detail }); setDetail(null); }}>تغییر زمان</button>
+                <button type="button" className="primary-button" onClick={() => { setAction({ mode: "COMPLETE", item: detail }); setDetail(null); }}>ثبت نتیجه</button>
+              </>}
+            </footer>
+          </aside>
+        </div>
+      )}
 
       {action?.mode === "COMPLETE" && (
         <ModalShell title="ثبت نتیجه پیگیری" subtitle={`${String(action.item.type)} · ${String(action.item.owner_name)}`} onClose={() => setAction(null)}>
@@ -2327,7 +2399,7 @@ function HelpPage({ settings, onNavigate }: { settings: AppSettings; onNavigate:
       body: (
         <div>
           <p>قالب را براساس نوع رخداد انتخاب کنید. مسیرهای API، ساعت شروع، کد خطا و تعداد رخداد را در متن نگه دارید؛ این اطلاعات برای تیم فنی از توضیح کلی مفیدتر است.</p>
-          <p>برای پیگیری مجدد، همان Bug ID را در موضوع نگه دارید تا مکاتبات در یک رشته قابل جست‌وجو باشند. بعد از رفع نیز درخواست علت اصلی و اقدام پیشگیرانه را فراموش نکنید.</p>
+          <p>برای پیگیری مجدد، همان Bug ID را در موضوع نگه دارید تا مکاتبات در یک رشته قابل جست‌وجو باشند. بعد از رفع، نتیجه آخرین بررسی را ثبت کنید تا سابقه اطلاع‌رسانی کامل بماند.</p>
         </div>
       ),
     },
@@ -2473,7 +2545,7 @@ function SettingsPage({
           <div className="form-grid two-cols">
             <label className="full"><span>نوع‌های قابل انتخاب؛ هر مورد در یک خط</span><textarea rows={7} value={typesText} onChange={(event) => setTypesText(event.target.value)} /></label>
             <label><span>نوع پیش‌فرض</span><select value={draft.followups.defaultType} onChange={(event) => setDraft((current) => ({ ...current, followups: { ...current.followups, defaultType: event.target.value } }))}>{typesText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map((type) => <option key={type}>{type}</option>)}</select></label>
-            <label><span>موعد پیش‌فرض بعد از ثبت</span><select value={draft.followups.defaultDelayHours} onChange={(event) => setDraft((current) => ({ ...current, followups: { ...current.followups, defaultDelayHours: Number(event.target.value) } }))}><option value={4}>۴ ساعت</option><option value={8}>۸ ساعت</option><option value={24}>۱ روز</option><option value={48}>۲ روز</option><option value={72}>۳ روز</option><option value={168}>۱ هفته</option></select></label>
+            <label><span>موعد پیش‌فرض بعد از ثبت</span><select value={draft.followups.defaultDelayHours} onChange={(event) => setDraft((current) => ({ ...current, followups: { ...current.followups, defaultDelayHours: Number(event.target.value) } }))}><option value={0}>همین الان / امروز</option><option value={4}>۴ ساعت</option><option value={8}>۸ ساعت</option><option value={24}>۱ روز</option><option value={48}>۲ روز</option><option value={72}>۳ روز</option><option value={168}>۱ هفته</option></select></label>
             <label><span>فاصله پیشنهادی پیگیری بعدی</span><select value={draft.followups.nextDelayHours} onChange={(event) => setDraft((current) => ({ ...current, followups: { ...current.followups, nextDelayHours: Number(event.target.value) } }))}><option value={8}>۸ ساعت</option><option value={24}>۱ روز</option><option value={48}>۲ روز</option><option value={72}>۳ روز</option><option value={168}>۱ هفته</option></select></label>
             <label><span>بدون تغییر پس از چند ساعت</span><select value={draft.followups.staleAfterHours} onChange={(event) => setDraft((current) => ({ ...current, followups: { ...current.followups, staleAfterHours: Number(event.target.value) } }))}><option value={24}>۲۴ ساعت</option><option value={48}>۴۸ ساعت</option><option value={72}>۷۲ ساعت</option><option value={168}>یک هفته</option></select></label>
             <article className="settings-inline-toggle"><div><strong>نتیجه برای تکمیل الزامی باشد</strong><p>از بسته‌شدن پیگیری بدون توضیح جلوگیری می‌کند</p></div><button type="button" className={cx("setting-toggle", draft.followups.requireResult && "on")} onClick={() => setDraft((current) => ({ ...current, followups: { ...current.followups, requireResult: !current.followups.requireResult } }))}><i></i><span>{draft.followups.requireResult ? "الزامی" : "اختیاری"}</span></button></article>
@@ -2502,6 +2574,64 @@ function SettingsPage({
       </section>
     </div>
   );
+}
+
+type NocTechnicalFields = {
+  httpStatus: string;
+  endpoint: string;
+  loadBalancer: string;
+  backend: string;
+  server: string;
+  errorCount: string;
+  errorRate: string;
+  requestCount: string;
+};
+
+const emptyNocTechnicalFields: NocTechnicalFields = {
+  httpStatus: "",
+  endpoint: "",
+  loadBalancer: "",
+  backend: "",
+  server: "",
+  errorCount: "",
+  errorRate: "",
+  requestCount: "",
+};
+
+function splitNocDescription(value: string) {
+  const fields: NocTechnicalFields = { ...emptyNocTechnicalFields };
+  const narrative: string[] = [];
+  const labelMap: Record<string, keyof NocTechnicalFields> = {
+    http: "httpStatus",
+    endpoint: "endpoint",
+    lb: "loadBalancer",
+    backend: "backend",
+    server: "server",
+    "error count": "errorCount",
+    "error rate": "errorRate",
+    requests: "requestCount",
+  };
+  for (const line of String(value ?? "").split(/\r?\n/)) {
+    const match = line.match(/^\s*(HTTP|Endpoint|LB|Backend|Server|Error Count|Error Rate|Requests)\s*:\s*(.*?)\s*$/i);
+    if (!match) { narrative.push(line); continue; }
+    const field = labelMap[match[1].toLowerCase()];
+    if (field) fields[field] = match[2];
+  }
+  return { description: narrative.join("\n").replace(/\n{3,}/g, "\n\n").trim(), fields };
+}
+
+function composeNocDescription(description: string, fields: NocTechnicalFields) {
+  const lines = [
+    ["HTTP", fields.httpStatus],
+    ["Endpoint", fields.endpoint],
+    ["LB", fields.loadBalancer],
+    ["Backend", fields.backend],
+    ["Server", fields.server],
+    ["Error Count", fields.errorCount],
+    ["Error Rate", fields.errorRate],
+    ["Requests", fields.requestCount],
+  ].filter(([, value]) => String(value).trim()).map(([label, value]) => `${label}: ${String(value).trim()}`);
+  return [description.trim(), lines.join("\n")].filter(Boolean).join("\n\n");
 }
 
 function BugDrawer({
@@ -2537,8 +2667,10 @@ function BugDrawer({
   const [ownerIds, setOwnerIds] = useState<string[]>(
     assignees.length ? assignees.map((item) => String(item.user_id)) : bug.owner_id ? [String(bug.owner_id)] : [],
   );
+  const initialNocContext = useMemo(() => splitNocDescription(String(bug.description ?? "")), [bug.description]);
   const [title, setTitle] = useState(String(bug.title));
-  const [description, setDescription] = useState(String(bug.description ?? ""));
+  const [description, setDescription] = useState(initialNocContext.description);
+  const [nocFields, setNocFields] = useState<NocTechnicalFields>(initialNocContext.fields);
   const [serviceId, setServiceId] = useState(bug.service_id ? String(bug.service_id) : "");
   const [firstSeenAt, setFirstSeenAt] = useState(toDateTimeLocal(bug.first_seen_at));
   const [lastSeenAt, setLastSeenAt] = useState(toDateTimeLocal(bug.last_seen_at));
@@ -2548,6 +2680,42 @@ function BugDrawer({
   const [saveError, setSaveError] = useState("");
   const [showFollowup, setShowFollowup] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [savingAssignees, setSavingAssignees] = useState(false);
+  const assigneeSaveTimer = useRef<number | null>(null);
+
+  const persistAssignees = async (ids: string[]) => {
+    if (assigneeSaveTimer.current !== null) {
+      window.clearTimeout(assigneeSaveTimer.current);
+      assigneeSaveTimer.current = null;
+    }
+    setSavingAssignees(true);
+    setSaveError("");
+    try {
+      await api(`/api/bugs/${bug.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ownerIds: ids.map(Number) }),
+      });
+      return true;
+    } catch (requestError) {
+      setSaveError(requestError instanceof Error ? requestError.message : "ذخیره مسئولان انجام نشد.");
+      return false;
+    } finally {
+      setSavingAssignees(false);
+    }
+  };
+
+  const changeAssignees = (ids: string[]) => {
+    setOwnerIds(ids);
+    if (assigneeSaveTimer.current !== null) window.clearTimeout(assigneeSaveTimer.current);
+    assigneeSaveTimer.current = window.setTimeout(() => {
+      assigneeSaveTimer.current = null;
+      void persistAssignees(ids);
+    }, 350);
+  };
+
+  useEffect(() => () => {
+    if (assigneeSaveTimer.current !== null) window.clearTimeout(assigneeSaveTimer.current);
+  }, []);
 
   const save = async () => {
     if (firstSeenAt && lastSeenAt && new Date(lastSeenAt).getTime() < new Date(firstSeenAt).getTime()) {
@@ -2561,7 +2729,7 @@ function BugDrawer({
         method: "PATCH",
         body: JSON.stringify({
           title,
-          description,
+          description: composeNocDescription(description, nocFields),
           status,
           priority,
           serviceId: serviceId ? Number(serviceId) : null,
@@ -2611,7 +2779,7 @@ function BugDrawer({
         <div className="drawer-badges"><PriorityBadge value={String(bug.priority)} /><StatusBadge value={String(bug.status)} /><span className="source-badge">{sourceLabels[String(bug.source)] ?? String(bug.source)}</span></div>
         <div className="drawer-tabs">
           <button className={tab === "summary" ? "active" : ""} onClick={() => setTab("summary")}>خلاصه و اقدام</button>
-          <button className={tab === "email" ? "active" : ""} onClick={() => setTab("email")}>ساخت ایمیل <b>✉</b></button>
+          <button className={tab === "email" ? "active" : ""} onClick={async () => { const ready = canEdit ? await persistAssignees(ownerIds) : true; if (ready) setTab("email"); }}>ساخت ایمیل <b>✉</b></button>
           <button className={tab === "timeline" ? "active" : ""} onClick={() => setTab("timeline")}>Timeline <b>{faNumber(events.length)}</b></button>
           <button className={tab === "followups" ? "active" : ""} onClick={() => setTab("followups")}>پیگیری‌ها <b>{faNumber(followUps.length)}</b></button>
         </div>
@@ -2625,6 +2793,17 @@ function BugDrawer({
                   <label><span>سرویس</span><select value={serviceId} disabled={!canEdit} onChange={(event) => setServiceId(event.target.value)}><option value="">بدون سرویس</option>{services.map((service) => <option key={String(service.id)} value={String(service.id)}>{String(service.path)}</option>)}</select></label>
                   <label><span>منبع</span><input value={sourceLabels[String(bug.source)] ?? String(bug.source)} disabled /></label>
                   <label className="full"><span>شرح و شواهد</span><textarea rows={5} value={description} disabled={!canEdit} onChange={(event) => setDescription(event.target.value)} /></label>
+                  <div className="full noc-technical-fields">
+                    <header><strong>اطلاعات فنی NOC</strong><span>برای ایمیل و پیگیری از اطلاعات واقعی ELK/Kibana استفاده می‌شود.</span></header>
+                    <label><span>HTTP Status</span><input value={nocFields.httpStatus} disabled={!canEdit} inputMode="numeric" placeholder="500 / 502 / 503" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, httpStatus: event.target.value }))} /></label>
+                    <label><span>Endpoint</span><input value={nocFields.endpoint} disabled={!canEdit} placeholder="/api/V1/..." dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, endpoint: event.target.value }))} /></label>
+                    <label><span>Load Balancer (LB)</span><input value={nocFields.loadBalancer} disabled={!canEdit} placeholder="LB-FL-O-1" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, loadBalancer: event.target.value }))} /></label>
+                    <label><span>Backend (BK)</span><input value={nocFields.backend} disabled={!canEdit} placeholder="bk_TravelIranianApi" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, backend: event.target.value }))} /></label>
+                    <label><span>Server / Host</span><input value={nocFields.server} disabled={!canEdit} placeholder="HostW / API1AF" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, server: event.target.value }))} /></label>
+                    <label><span>Error Count</span><input value={nocFields.errorCount} disabled={!canEdit} inputMode="numeric" placeholder="174" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, errorCount: event.target.value }))} /></label>
+                    <label><span>Error Rate %</span><input value={nocFields.errorRate} disabled={!canEdit} inputMode="decimal" placeholder="0.53" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, errorRate: event.target.value }))} /></label>
+                    <label><span>Requests</span><input value={nocFields.requestCount} disabled={!canEdit} inputMode="numeric" placeholder="11119" dir="ltr" onChange={(event) => setNocFields((current) => ({ ...current, requestCount: event.target.value }))} /></label>
+                  </div>
                 </div>
                 {Boolean(bug.dashboard_url) && <a className="external-link" href={String(bug.dashboard_url)} target="_blank" rel="noreferrer">باز کردن داشبورد Kibana ↗</a>}
               </section>
@@ -2649,13 +2828,13 @@ function BugDrawer({
                 <div className="edit-grid">
                   <label><span>وضعیت</span><select value={status} disabled={!canEdit} onChange={(event) => setStatus(event.target.value)}>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
                   <label><span>اولویت</span><select value={priority} disabled={!canEdit} onChange={(event) => setPriority(event.target.value)}><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select></label>
-                  {canEdit ? <div className="full"><AssigneePicker users={users} selectedIds={ownerIds} onChange={setOwnerIds} /></div> : <div className="full readonly-assignees"><span>مسئولان</span><AssigneeSummary owners={assignees} fallback={String(bug.owner_name)} /></div>}
+                  {canEdit ? <div className="full"><AssigneePicker users={users} selectedIds={ownerIds} onChange={changeAssignees} /><small className="assignee-save-state">{savingAssignees ? "در حال ذخیره مسئولان…" : "انتخاب مسئولان به‌صورت خودکار ذخیره می‌شود."}</small></div> : <div className="full readonly-assignees"><span>مسئولان</span><AssigneeSummary owners={assignees} fallback={String(bug.owner_name)} /></div>}
                   <label><span>اولین مشاهده</span><input type="datetime-local" value={firstSeenAt} disabled={!canEdit} max={lastSeenAt || undefined} onChange={(event) => setFirstSeenAt(event.target.value)} /><small className="date-preview">{firstSeenAt ? `${formatDate(new Date(firstSeenAt).toISOString(), true)} · ${formatRelativeDate(firstSeenAt)}` : "انتخاب نشده"}</small></label>
                   <label><span>آخرین مشاهده</span><input type="datetime-local" value={lastSeenAt} disabled={!canEdit} min={firstSeenAt || undefined} onChange={(event) => setLastSeenAt(event.target.value)} /><small className="date-preview">{lastSeenAt ? `${formatDate(new Date(lastSeenAt).toISOString(), true)} · ${formatRelativeDate(lastSeenAt)}` : "انتخاب نشده"}</small></label>
                   <label className="full"><span>پیگیری بعدی</span><input type="datetime-local" value={nextFollowUpAt} disabled={!canEdit} onChange={(event) => setNextFollowUpAt(event.target.value)} /><small className="date-preview">{nextFollowUpAt ? `${formatDate(new Date(nextFollowUpAt).toISOString(), true)} · ${formatRelativeDate(nextFollowUpAt)}` : "انتخاب نشده"}</small></label>
                 </div>
                 {saveError && <p className="form-error">{saveError}</p>}
-                {canEdit && <button className="primary-button full-button" onClick={() => void save()} disabled={saving || deleting}>{saving ? "در حال ثبت..." : "ثبت تغییرات"}</button>}
+                {canEdit && <button className="primary-button full-button" onClick={() => void save()} disabled={saving || deleting || savingAssignees}>{saving ? "در حال ثبت..." : savingAssignees ? "در حال ذخیره مسئولان…" : "ثبت تغییرات"}</button>}
               </section>
               {canDelete && (
                 <section className="drawer-section danger-zone">
@@ -2757,8 +2936,9 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
   const [mailApp, setMailApp] = useState<"outlook-classic" | "system" | "outlook-web">("outlook-classic");
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState("");
+  const [recipientWarning, setRecipientWarning] = useState("");
 
-  const loadTemplate = useCallback(async (key: string) => {
+  const loadTemplate = useCallback(async (key: string, preserveRecipients = false) => {
     setLoading(true);
     setFormError("");
     try {
@@ -2795,12 +2975,17 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
         templates: Row[];
         history: Row[];
         deliveryConfigured: boolean;
+        recipientDetails?: { missingAssigneeEmails?: string[] };
       }>(`/api/bugs/${bugId}/emails?template=${encodeURIComponent(key)}`);
 
       setTemplateKey(result.draft.templateKey);
       setRecommendedTemplateKey(result.draft.recommendedTemplateKey);
-      setTo(result.draft.to);
-      setCc(result.draft.cc);
+      if (!preserveRecipients) {
+        setTo(result.draft.to);
+        setCc(result.draft.cc);
+      }
+      const missing = result.recipientDetails?.missingAssigneeEmails ?? [];
+      setRecipientWarning(missing.length ? `برای ${missing.join("، ")} ایمیل معتبر ثبت نشده است.` : "");
       setSubject(result.draft.subject);
       setBody(result.draft.body);
       setInsights(result.draft.context);
@@ -2839,9 +3024,23 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
   }, [bugId]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadTemplate("AUTO"), 0);
+    const timer = window.setTimeout(() => void loadTemplate("AUTO", false), 0);
     return () => window.clearTimeout(timer);
   }, [loadTemplate]);
+
+  const syncRecipients = async () => {
+    setFormError("");
+    try {
+      const result = await api<{ draft: { to: string; cc: string }; recipientDetails?: { missingAssigneeEmails?: string[] } }>(`/api/bugs/${bugId}/emails?template=${encodeURIComponent(templateKey)}`);
+      setTo(result.draft.to);
+      setCc(result.draft.cc);
+      const missing = result.recipientDetails?.missingAssigneeEmails ?? [];
+      setRecipientWarning(missing.length ? `برای ${missing.join("، ")} ایمیل معتبر ثبت نشده است.` : "");
+      setMessage("گیرندگان با مسئولان و تنظیمات سرویس همگام شدند.");
+    } catch (requestError) {
+      setFormError(requestError instanceof Error ? requestError.message : "همگام‌سازی گیرندگان انجام نشد.");
+    }
+  };
 
   const imageSelections = useMemo(() => attachments
     .map((item) => ({
@@ -3040,13 +3239,13 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
             <p>متن کوتاه از اطلاعات واقعی رخداد ساخته می‌شود و قابل ویرایش است.</p>
           </div>
         </div>
-        <button type="button" className="secondary-button smart-email-rebuild" onClick={() => void loadTemplate("AUTO")}>✦ بازسازی هوشمند</button>
+        <button type="button" className="secondary-button smart-email-rebuild" onClick={() => void loadTemplate("AUTO", true)}>✦ بازسازی هوشمند</button>
       </div>
 
       <div className="smart-email-toolbar-v12">
         <label className="smart-email-type-control">
           <span>نوع پیام</span>
-          <select value={templateKey} onChange={(event) => void loadTemplate(event.target.value)}>
+          <select value={templateKey} onChange={(event) => void loadTemplate(event.target.value, true)}>
             {templates.map((item) => <option key={String(item.key)} value={String(item.key)}>{Boolean(item.recommended) ? "★ " : ""}{String(item.name)}</option>)}
           </select>
           <small>{String(selectedTemplate?.description ?? "نوع پیام را انتخاب کنید.")}</small>
@@ -3062,6 +3261,7 @@ function EmailComposer({ bugId, bugCode, canEdit }: { bugId: number; bugCode: st
       <div className="email-fields smart-email-fields-v12">
         <label><span>گیرندگان *</span><input value={to} onChange={(event) => setTo(event.target.value)} placeholder="name@company.com" dir="ltr" /></label>
         <label><span>رونوشت (CC)</span><input value={cc} onChange={(event) => setCc(event.target.value)} placeholder="manager@company.com" dir="ltr" /></label>
+        <div className="full email-recipient-tools"><button type="button" className="cancel-button" onClick={() => void syncRecipients()}>↻ همگام‌سازی گیرندگان</button>{recipientWarning && <span className="email-recipient-warning">{recipientWarning}</span>}</div>
         <label className="full"><span>موضوع *</span><input value={subject} onChange={(event) => setSubject(event.target.value)} /></label>
         <label className="full"><span>متن ایمیل *</span><textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} /></label>
       </div>
@@ -3216,12 +3416,24 @@ function NewBugModal({ services, users, onClose, onCreated }: { services: Row[];
         event.preventDefault();
         setSaving(true); setFormError("");
         const values = new FormData(event.currentTarget);
+        const technicalLines = [
+          ["HTTP", values.get("httpStatus")],
+          ["Endpoint", values.get("endpoint")],
+          ["LB", values.get("loadBalancer")],
+          ["Backend", values.get("backend")],
+          ["Server", values.get("server")],
+          ["Error Count", values.get("errorCount")],
+          ["Error Rate", values.get("errorRate")],
+          ["Requests", values.get("requestCount")],
+        ].map(([label, value]) => [label, String(value ?? "").trim()] as const).filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`);
+        const freeDescription = String(values.get("description") ?? "").trim();
+        const finalDescription = [freeDescription, technicalLines.join("\n")].filter(Boolean).join("\n\n");
         try {
           const created = await api<{ bug: Row }>("/api/bugs", {
             method: "POST",
             body: JSON.stringify({
               title: values.get("title"),
-              description: values.get("description"),
+              description: finalDescription,
               serviceId: Number(values.get("serviceId")),
               priority: values.get("priority"),
               ownerIds: ownerIds.map(Number),
@@ -3238,6 +3450,17 @@ function NewBugModal({ services, users, onClose, onCreated }: { services: Row[];
         <label><span>سرویس *</span><select name="serviceId" required defaultValue=""><option value="" disabled>انتخاب سرویس</option>{services.map((service) => <option key={String(service.id)} value={String(service.id)}>{String(service.path)}</option>)}</select></label>
         <label><span>اولویت *</span><select name="priority" defaultValue="P2"><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select></label>
         <div className="full"><AssigneePicker users={users} selectedIds={ownerIds} onChange={setOwnerIds} compact /></div>
+        <div className="full noc-technical-fields">
+          <header><strong>اطلاعات فنی NOC</strong><span>اختیاری؛ فقط اطلاعاتی که در ELK/Kibana دیده‌اید وارد کنید.</span></header>
+          <label><span>HTTP Status</span><input name="httpStatus" inputMode="numeric" placeholder="500 / 502 / 503" dir="ltr" /></label>
+          <label><span>Endpoint</span><input name="endpoint" placeholder="/api/V1/..." dir="ltr" /></label>
+          <label><span>Load Balancer (LB)</span><input name="loadBalancer" placeholder="LB-FL-O-1" dir="ltr" /></label>
+          <label><span>Backend (BK)</span><input name="backend" placeholder="bk_TravelIranianApi" dir="ltr" /></label>
+          <label><span>Server / Host</span><input name="server" placeholder="HostW / API1AF" dir="ltr" /></label>
+          <label><span>Error Count</span><input name="errorCount" inputMode="numeric" placeholder="174" dir="ltr" /></label>
+          <label><span>Error Rate %</span><input name="errorRate" inputMode="decimal" placeholder="0.53" dir="ltr" /></label>
+          <label><span>Requests</span><input name="requestCount" inputMode="numeric" placeholder="11119" dir="ltr" /></label>
+        </div>
         <label className="full"><span>اولین مشاهده</span><input name="firstSeenAt" type="datetime-local" value={firstSeenAt} onChange={(event) => setFirstSeenAt(event.target.value)} /><small className="date-preview">{firstSeenAt ? `${formatDate(new Date(firstSeenAt).toISOString(), true)} · ${formatRelativeDate(firstSeenAt)}` : "در صورت خالی بودن، زمان فعلی ثبت می‌شود"}</small></label>
         <label className="full"><span>شرح و شواهد اولیه</span><textarea name="description" rows={5} placeholder="اثر مشاهده‌شده، نمودار مرتبط یا اقدام اولیه..." /></label>
         <div className="full new-bug-image-picker"><div className="image-picker-head"><div><strong>تصاویر خطا</strong><span>اسکرین‌شات یا شواهد تصویری را همراه ثبت Incident اضافه کنید.</span></div><label className="image-upload-button"><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { const selected = Array.from(event.target.files ?? []); const invalid = selected.find((file) => file.size > 10 * 1024 * 1024); if (invalid) { setFormError(`حجم ${invalid.name} بیشتر از ۱۰ مگابایت است.`); event.target.value = ""; return; } setImages((current) => [...current, ...selected].slice(0, 10)); event.target.value = ""; }} />＋ انتخاب تصویر</label></div>{images.length > 0 && <div className="new-bug-image-previews">{imagePreviews.map(({ file, url }, index) => <article key={`${file.name}-${file.lastModified}-${index}`}><img src={url} alt={file.name} /><button type="button" onClick={() => setImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button><span>{file.name}</span><small>{(file.size / 1024 / 1024).toLocaleString("fa-IR", { maximumFractionDigits: 2 })} MB</small></article>)}</div>}<small className="incident-image-help">JPG، PNG یا WebP · حداکثر ۱۰ مگابایت برای هر تصویر · حداکثر ۱۰ تصویر</small></div>

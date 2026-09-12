@@ -1,4 +1,4 @@
-import { getRawDb } from "./index";
+import { getRawDb, type LocalD1Database } from "./index";
 import { importBugReport } from "./import-bug-report";
 
 const schemaStatements = [
@@ -229,7 +229,7 @@ const requestedServices = [
   ["VISAM", "Visa_main"],
 ] as const;
 
-async function synchronizeEditableCatalog(d1: D1Database) {
+async function synchronizeEditableCatalog(d1: LocalD1Database) {
   const statements = [
     d1.prepare(`INSERT OR IGNORE INTO bug_assignees (bug_id, user_id, assigned_by)
       SELECT id, owner_id, 'مهاجرت خودکار' FROM bugs WHERE owner_id IS NOT NULL`),
@@ -292,7 +292,7 @@ async function synchronizeEditableCatalog(d1: D1Database) {
   await d1.batch(statements);
 }
 
-async function seedDatabase(d1: D1Database) {
+async function seedDatabase(d1: LocalD1Database) {
   const existing = await d1.prepare("SELECT COUNT(*) AS count FROM services").first<{ count: number }>();
   if ((existing?.count ?? 0) > 0) return;
 
